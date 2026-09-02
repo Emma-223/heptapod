@@ -35,6 +35,14 @@ config:
     description: Enable INSPIRE query caching.
     type: boolean
     default: false
+  - name: datacard_directory
+    description: directory storing datacards to be used with CMS Combine
+    type: path
+    required: false
+  - name: combine_container
+    description: singularity container used to run CMS Combine outside of a CMSSW environment
+    type: path
+    required: false
 bundles:
   # ── lightweight / always-available ───────────────────────────────
   units: {}                              # pure python; nothing to install
@@ -83,6 +91,12 @@ bundles:
   # ── BSM model UFO generation via Mathematica/FeynRules ───────────
   feynrules:
     requires: [feynrules_path, wolframscript_path]
+
+  # ── Statistical analysis in CMS Combine ───────────
+  combine: 
+    requires: [datacard_directory]
+    deps: [root]
+    
 tools:
   - module: tools.analysis.conversions
     name: EventJSONLToNumpyTool
@@ -335,3 +349,15 @@ tools:
     name: NaturalUnitsConverter
     description: Convert between natural units (ℏ=c=1) and SI units.
     bundle: units
+  - module: tools.combine.combine_tools
+    name: WriteCombineCommandTool
+    description: Writes a command to be run in CMS Combine
+    bundle: combine
+  - module: tools.combine.combine_tools
+    name: RunCommandTool
+    description: Runs a CMS Combine command
+    bundle: combine
+  - module: tools.combine.combine_tools
+    name: ReadLimitOutputTool
+    description: Reads the expected and/or observed limits from a root file output by combine
+    bundle: combine

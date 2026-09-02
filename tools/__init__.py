@@ -29,6 +29,7 @@ for _name in (
     "pythia",
     "sherpa",
     "units",
+    "combine"
 ):
     try:
         __import__(f"{__name__}.{_name}")

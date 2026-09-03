@@ -17,34 +17,13 @@ class WriteCombineCommandTool(BaseTool):
     """
     Writes a command for CMS Combine given a signal mass hypothesis.
 
-    Do not run the output of WriteCombineCommand in a terminal. Instead, call RunCommand with the output of WriteCombineCommand.
-
-    To calculate limits with the asymptotic approximation, also called 'asymptotic limits':
-    - Set combine_method to 'AsymptoticLimits'. 
-    - This calculates all quantiles of expected limits and the observed limit, so set quantile_expected to 'all'.
-    - Nothing is required in other_options unless the user specifies it.
-
-    To calculate limits with toys, also called 'frequentist limits': 
-    - Set combine_method to 'HybridNew'. 
-    - Specify the number of toys by putting -T [number] in the other_options argument. 
-    - If the user requests expected limits, set quantile_expected to one of '0.025', '0.016', '0.5', '0.84' or '0.95' as specified by the user. If the user does not specify a quantile, assume it is '0.5'.
-    - When discussing expected limits, the quantile may be specified with the following terms:
-      - '-2 sigma' is '0.025'
-      - '-1 sigma' is '0.016'
-      - 'median' or 'median expected' is '0.5'
-      - '1 sigma' is '0.84'
-      - '2 sigma' is '0.975'
-    - If the user requests the observed limit, set the quantile_expected argument to '-1'.
-    
-    To run a likelihood scan: 
-    - Set combine_method to MultiDimFit.
-    - Since this does not calculate limits, the quantile_expected argument is not relevant. Leave it as its default value.
+    Do NOT run the output of WriteCombineCommand in a terminal. Instead, call RunCommand with the output of WriteCombineCommand.
 
     Args:
-        combine_method: The method of Combine to run. This can be one of: MultiDimFit, HybridNew or AsymptoticLimits.
+        combine_method: The method of Combine to run. One of AsymptoticLimits, HybridNew, or MultiDimFit.
         mass: The signal mass hypothesis to use.
-        other_options: optional other options to pass to combine.
-        quantile_expected: Which quantile to run when calculating expected limits in the HybridNew method. Can be one of 0.025, 0.016, 0.5, 0.84, 0.975 or -1 if combine_method is HybridNew. Must be 'all' if combine_method is AsymptoticLimits. Otherwise, it is 'NA' (short for 'not applicable').
+        seed: The seed to use for randomization. Use -1 unless the user requests a specific seed.
+        other_options: other options to pass to combine.
 
     Returns (JSON):
         {status: "ok", random_seed: "<int>", combine_method: "<str>", mass: "<GeV>", "quantile": "<str>"}
@@ -55,10 +34,14 @@ class WriteCombineCommandTool(BaseTool):
     
     # =========== Runtime fields ==========
     combine_method: str = RuntimeField(
-        description="The method of Combine to run. This can be one of: MultiDimFit, HybridNew or AsymptoticLimits."
+        description="The method of Combine to run. One of AsymptoticLimits, HybridNew, or MultiDimFit."
     )
     mass: int = RuntimeField(
         description="The signal mass hypothesis to use"
+    )
+    seed: int = RuntimeField(
+        deafult=-1,
+        description="The seed to use for randomization. Use -1 unless the user requests a specific seed."
     )
     other_options: str = RuntimeField(
         default="",
@@ -68,10 +51,10 @@ class WriteCombineCommandTool(BaseTool):
     #    default = "",
     #    description="Which test statistic to use in the HybridNew method. Can be one of LEP, TEV or LHC."
     #)
-    quantile_expected: str = RuntimeField(
-        default = "NA",
-        description = "Which quantile to run when calculating expected limits in the HybridNew method. Can be one of 0.025, 0.016, 0.5, 0.84, 0.975 or -1 if combine_method is HybridNew. Must be 'all' if combine_method is AsymptoticLimits. Otherwise, it is 'NA' (short for 'not applicable')."
-    )
+    #quantile_expected: str = RuntimeField(
+    #    default = "NA",
+    #    description = "Which quantile to run when calculating expected limits in the HybridNew method. Can be one of 0.025, 0.016, 0.5, 0.84, 0.975 or -1 if combine_method is HybridNew. Must be 'all' if combine_method is AsymptoticLimits. Otherwise, it is 'NA' (short for 'not applicable')."
+    #)
 
     # ========== State fields ==========
     datacard_directory: str = StateField(
@@ -98,14 +81,22 @@ class WriteCombineCommandTool(BaseTool):
                 reason="The datacard file does not exist. The provided path was likely incorrect",
                 suggestion="Check that the path to the datacards is correct and is an absolute path"
             )
-        combine_command = "combine " + "-M " + self.combine_method+ " "+ str(datacard_file) + " -m " + str(self.mass) + " --seed " + "-1 "
+        if self.combine_container != "":
+            if not Path(self.combine_container).exists():
+                return self.format_error(
+                    error="Container does not exist",
+                    reason="A path to a container was provided, but the file does not exist",
+                    context=f"combine_container={self.combine_container}",
+                    suggestion="Check combine_container when constructing the tool"
+                )
+        combine_command = "combine " + "-M " + self.combine_method+ " "+ str(datacard_file) + " -m " + str(self.mass) + " --seed " + str(self.seed)
 
-        if self.combine_method == "HybridNew":
-            combine_command += " --LHCmode LHC-limits "
+        #if self.combine_method == "HybridNew":
+        #    combine_command += " --LHCmode LHC-limits "
 
-        if self.combine_method == "HybridNew" and self.quantile_expected != "-1":
-            combine_command += " --expectedFromGrid={} ".format(self.quantile_expected)
-        combine_command += self.other_options
+        #if self.combine_method == "HybridNew" and self.quantile_expected != "-1":
+        #    combine_command += " --expectedFromGrid={} ".format(self.quantile_expected)
+        combine_command += " " + self.other_options
         #print("the combine command will be:", " ".join(combine_command))
 
         if self.combine_container != "":
@@ -128,7 +119,8 @@ class WriteCombineCommandTool(BaseTool):
             {"status": "ok",
              "combine_command": cmd_to_run,
              "mass": self.mass,
-             "quantile": self.quantile_expected}
+             "combine_method": self.combine_method}
+             #"quantile": self.quantile_expected}
         )
         
 
@@ -136,14 +128,13 @@ class RunCommandTool(BaseTool):
     """
     Runs a combine command in a terminal and records the name of the output file. 
     You create the command by calling WriteCombineCommand. 
-    You must run all combine commands using this tool.
+    You MUST run ALL combine commands using this tool.
     If combine_method is HybridNew, the command may take 5 to 10 minutes to run.
     If the user requests that you save the results to a specific directory, use that as the root_file_directory option.
 
     Args:
         combine_command: the command to run, output by WriteCombineCommand
         mass: the signal mass hypothesis
-        quantile: the quantile being considered
         root_file_directory: the name of the directory for storing output root files"
 
     Returns (JSON):
@@ -157,9 +148,9 @@ class RunCommandTool(BaseTool):
     mass: int = RuntimeField(
         description = "the signal mass hypothesis"
     )
-    quantile: str = RuntimeField(
-        description = "the quantile being considered"
-    )
+    #quantile: str = RuntimeField(
+    #    description = "the quantile being considered"
+    #)
     combine_method: str = RuntimeField(
         description = "the combine method being run"
     )
@@ -219,7 +210,7 @@ class RunCommandTool(BaseTool):
                 "combine_command": self.combine_command,
                 "output_root_file": str(output_name),
                 "mass": self.mass,
-                "quantile": self.quantile,
+                #"quantile": self.quantile,
                 "combine_method": self.combine_method
             }
         )

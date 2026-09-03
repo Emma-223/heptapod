@@ -21,6 +21,7 @@ There are two varieties of limits: expected and observed.
 
 - The observed limit is one number.
 - The expected limits are one number for each quantile and the median: 0.025, 0.016, 0.5, 0.84, and 0.975. 0.5 is usually called the median expected limit.
+- In Combine, sometimes the observed limit is coded internally as the quantile -1. 
 
 Typically, we calculate limits for several different values of some physical quantity, such as signal mass hypothesis. 
 
@@ -28,9 +29,9 @@ Typically, we calculate limits for several different values of some physical qua
 
 All commands in CMS Combine follow a common format:
 
-`combine -d [datacard] -M [method] -m [mass] --seed [seed] [other options]`
+`combine -d [datacard] -M [method] -m [mass] --seed [seed] [method specific options] [other options]`
 
-From the user input, you need to determine method, mass, seed, and other options.
+From the user input, you need to determine method, mass, seed, method specific options and other options.
 
 Method: dictates which task Combine will run. For example, will it produce limits, or run a significance calculation, or do a likelihood scan? This can be one of:
     - AsymptoticLimits
@@ -41,7 +42,9 @@ Mass: the signal mass hypothesis for the physics process being studied. If you i
 
 Seed: the seed Combine will use for randomization. Use -1 unless the user tells you to use a specific seed.
 
-Other options: Some tasks require more options than method, mass and seed. Put these options into a single string to give to WriteCombineCommand. 
+Method specific options: An option or combination of options specific to a given Combine method. Put these options into a single string to give to WriteCombineCommand.
+
+Other options: In some cases, the user may specify additional options they want you to use. Put these options into a single string to give to WriteCombineCommand. 
 
 Below are details on how to perform specific tasks.
 
@@ -54,14 +57,14 @@ Below are details on how to perform specific tasks.
 ## Frequentist Limits (also called limits with toys) - simple models
 
     - Set the method argument to HybridNew
-    - other options:
+    - method specific options:
         - You must include the option --LHCmode LHC-limits
         - Specify the number of toys with -T [number]
         - If you are asked for expected limits, specify the quantile with --expectedFromGrid=[quantile].
         - If the user asks for the expected limit but does not specify a quantile, assume it is 0.5.
         - If you are asked for observed limits, do not use the --expectedFromGrid={} option.
-        - example for observed limits with 10 toys: other options will be `--LHCmode LHC-limits -T 10`
-        - example for expected limits, 0.16 quantile, with 10 toys: other options will be `--LHCmode LHC-limits -T 10 --expectedFromGrid=0.16`
+        - example for observed limits with 10 toys: method specific options will be `--LHCmode LHC-limits -T 10`
+        - example for expected limits, 0.16 quantile, with 10 toys: method specific options will be `--LHCmode LHC-limits -T 10 --expectedFromGrid=0.16`
     - It is important to know that this calculates either the expected limit for a single quantile OR the observed limit.
 
 # Typical CMS Combine workflow
@@ -72,4 +75,5 @@ In general, the workflow will be as follows:
 2. Run the command from step 1, which will produce a root file. A RunCommand tool is provided to run commands. You must use this tool to run ALL Combine commands.
 3. Read the output from the root file.
 4. If you have been asked to run over multiple mass points and/or quantiles, repeat steps 1, 2 and 3 for each combination of mass and quantile the user requested.
-5. Format the results. You should print a summary for the user. If requested, make results into a table or plot.
+5. If you have run over many masses and/or quantiles, collect the limit results into a single json file.
+6. Format the results. You should print a summary for the user. If requested, make results into a table or plot.

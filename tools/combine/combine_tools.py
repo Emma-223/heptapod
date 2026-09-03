@@ -23,7 +23,8 @@ class WriteCombineCommandTool(BaseTool):
         combine_method: The method of Combine to run. One of AsymptoticLimits, HybridNew, or MultiDimFit.
         mass: The signal mass hypothesis to use.
         seed: The seed to use for randomization. Use -1 unless the user requests a specific seed.
-        other_options: other options to pass to combine.
+        method_specific_options: specific options for the chosen method.
+        other_options: extra options provided by the user. Do not put anything in this argument unless the user gives you the specific option(s) to add.
 
     Returns (JSON):
         {status: "ok", random_seed: "<int>", combine_method: "<str>", mass: "<GeV>", "quantile": "<str>"}
@@ -43,9 +44,13 @@ class WriteCombineCommandTool(BaseTool):
         deafult=-1,
         description="The seed to use for randomization. Use -1 unless the user requests a specific seed."
     )
+    method_specific_options: str = RuntimeField(
+        default="",
+        description="specific options for the chosen method."
+    )
     other_options: str = RuntimeField(
         default="",
-        description="optional other options to pass to combine"
+        description="extra options provided by the user. Do not put anything in this argument unless the user gives you the specific option(s) to add."
     )
     #limit_style: str = RuntimeField(
     #    default = "",
@@ -73,7 +78,7 @@ class WriteCombineCommandTool(BaseTool):
             
         #datacard_file = self.datacard_filename_template.format(self.mass)
         #print("using datacard:",datacard_file)
-        datacard_file = list(Path(self.datacard_directory).glob("*{}*.txt".format(self.mass)))[0]
+        datacard_file = list(Path(self.datacard_directory).glob("*M{}.txt".format(self.mass)))[0]
         #print(datacard_file)
         if not datacard_file.exists():
             return self.format_error(
@@ -96,6 +101,8 @@ class WriteCombineCommandTool(BaseTool):
 
         #if self.combine_method == "HybridNew" and self.quantile_expected != "-1":
         #    combine_command += " --expectedFromGrid={} ".format(self.quantile_expected)
+        print(self.method_specific_options)
+        combine_command += " " + self.method_specific_options
         combine_command += " " + self.other_options
         #print("the combine command will be:", " ".join(combine_command))
 
@@ -258,7 +265,10 @@ class ReadLimitOutputTool(BaseTool):
         
     def _run(self) -> str:
         out_path = _safe_path(self.base_directory, Path(self.root_file).parent / self.output_limit_file)
-        if not Path(self.root_file).exists():
+        root_file_full = Path(self.base_directory) / self.root_file
+        print(self.root_file)
+        print(root_file_full)
+        if not root_file_full.exists():
             return self.format_error(
                 error="File not found",
                 reason="the root file containing the limits does not exist",
@@ -270,7 +280,7 @@ class ReadLimitOutputTool(BaseTool):
                 reason="The name provided for the output limit json file is a path, not a plan filename.",
                 suggestion="Use a plain filename such as 'limits_[mass].json"
             )
-        limit_file = TFile.Open(self.root_file)
+        limit_file = TFile.Open(str(root_file_full))
         limit_tree = limit_file.Get("limit")
 
         limit_dict = {}
@@ -286,3 +296,78 @@ class ReadLimitOutputTool(BaseTool):
         limit_dict["output_file"] = str(out_path)
 
         return json.dumps(limit_dict)
+
+class CollectResultsTool(BaseTool):
+    """
+    Collects limit results from many json files and consolidates them into a single json file.
+
+    If you have previously calculated limits for many masses and quantiles and the user is asking for a summary table or plot, this will be the first step.
+
+    Args:
+        individual_filenames: A comma separated list of the json file names containing results of individual limit calculations. These can be found in the output of the calls to ReadLimitOutput. 
+        all_limits_file: The name of the json file where you will write all of the limits, for example, limits_all.json.
+        combine_method: The combine_method used to produce these limits.
+
+    Returns (JSON):
+        {"status": "ok", "output_file": "<name>"}
+    """
+
+    # ========== Runtime Fields ==========
+    individual_filenames: str = RuntimeField(
+        description="A comma separated list of the json file names containing results of individual limit calculations. These can be found in the output of the calls to ReadLimitOutput."
+    )
+    all_limits_file: str = RuntimeField(
+        default="limits_all.json",
+        description="The name of the json file where you will write all of the limits, for example, limits_all.json."
+    )
+    combine_method: str = RuntimeField(
+        description="The combine_method used to produce these limits."
+    )
+
+    # ========== State Fields ==========
+    base_directory: str = StateField(
+        description = "working directory for file output"
+    )
+
+    # ========== run ==========
+        
+    def _run(self) -> str:
+        print(self.base_directory)
+        out_path = _safe_path(self.base_directory, self.all_limits_file)
+        file_list = self.individual_filenames.split(",")
+        missing_files = []
+        for i,f in enumerate(file_list):
+            file_list[i] = self.base_directory+"/"+ f.strip()
+            if not Path(self.base_directory+"/"+f.strip()).exists():
+                missing_files.append(f.strip())
+                
+        if len(missing_files) > 0:    
+            return self.format_error(
+                error="Files do not exist",
+                reason="At least one of the input json files does not exist",
+                context="missing_files= " + ", ".join(missing_files),
+                suggestion="Check that the correct file names were used."
+            )
+
+        limit_dict = {}
+
+        #HybridNew will have one file per mass per quantile. AsymptoticLimits will have all quantiles in one file per mass.
+        for filename in file_list:
+            with open(filename,'r') as this_file:
+                dict_this_file = json.load(this_file)
+
+            mass = dict_this_file["mass"]
+            if not mass in limit_dict.keys():
+                limit_dict[mass] = {}
+                
+            quantiles = dict_this_file.keys()
+            for q in quantiles:
+                if q=="mass":
+                    continue
+                limit_dict[mass][q] = dict_this_file[q]
+
+        out_path.write_text(json.dumps(limit_dict))
+
+        return json.dumps(
+            {"status": "ok", "output_file": str(out_path)}
+        )

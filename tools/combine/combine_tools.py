@@ -3,6 +3,8 @@ from orchestral.tools.base.field_utils import RuntimeField, StateField
 from pathlib import Path
 import subprocess
 import json
+import matplotlib.pyplot as plt
+import mlhep as mh
 from ROOT import TFile, TTree
 
 def _safe_path(base_directory: str, filename: str) -> Path:
@@ -371,3 +373,4 @@ class CollectResultsTool(BaseTool):
         return json.dumps(
             {"status": "ok", "output_file": str(out_path)}
         )
+

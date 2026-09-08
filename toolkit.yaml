@@ -361,3 +361,7 @@ tools:
     name: ReadLimitOutputTool
     description: Reads the expected and/or observed limits from a root file output by combine
     bundle: combine
+  - module: tools.combine.combine_tools
+    name: CollectResultsTool
+    description: Collects results from multiple masses into a single json file
+    bundle: combine

@@ -3,8 +3,6 @@ from orchestral.tools.base.field_utils import RuntimeField, StateField
 from pathlib import Path
 import subprocess
 import json
-import matplotlib.pyplot as plt
-import mlhep as mh
 from ROOT import TFile, TTree
 
 def _safe_path(base_directory: str, filename: str) -> Path:
@@ -19,7 +17,7 @@ class WriteCombineCommandTool(BaseTool):
     """
     Writes a command for CMS Combine given a signal mass hypothesis.
 
-    Do NOT run the output of WriteCombineCommand in a terminal. Instead, call RunCommand with the output of WriteCombineCommand.
+    Do NOT run the output of WriteCombineCommand in a terminal. Instead, pass the combine_command output of WriteCombineCommand to the combine_command argument of RunCommand.
 
     Args:
         combine_method: The method of Combine to run. One of AsymptoticLimits, HybridNew, or MultiDimFit.
@@ -29,7 +27,7 @@ class WriteCombineCommandTool(BaseTool):
         other_options: extra options provided by the user. Do not put anything in this argument unless the user gives you the specific option(s) to add.
 
     Returns (JSON):
-        {status: "ok", random_seed: "<int>", combine_method: "<str>", mass: "<GeV>", "quantile": "<str>"}
+        {status: "ok", "combine_command": "<str>", combine_method: "<str>", mass: "<GeV>"}
 
     Errors:
         Returns a formatted error if the datacard is missing
@@ -139,7 +137,7 @@ class RunCommandTool(BaseTool):
     You create the command by calling WriteCombineCommand. 
     You MUST run ALL combine commands using this tool.
     If combine_method is HybridNew, the command may take 5 to 10 minutes to run.
-    If the user requests that you save the results to a specific directory, use that as the root_file_directory option.
+    If the user requests that you save the results to a specific directory, use that as the root_file_directory option. Do not make the directory yourself, because the tool will do it for you.
 
     Args:
         combine_command: the command to run, output by WriteCombineCommand
@@ -147,7 +145,7 @@ class RunCommandTool(BaseTool):
         root_file_directory: the name of the directory for storing output root files"
 
     Returns (JSON):
-        {"status": "ok", "output_root_file": "<name>", "mass": "<GeV>", "quantile": "<str>"}
+        {"status": "ok", "combine_command": "<str>", "output_root_file": "<name>", "mass": "<GeV>", "combine_method": "<str>"}
     """
 
     #========== Runtime Fields ==========
@@ -294,10 +292,10 @@ class ReadLimitOutputTool(BaseTool):
         limit_dict["mass"] = self.mass
         print(limit_dict)
         out_path.write_text(json.dumps(limit_dict))
-        limit_dict["status"] = "ok"
-        limit_dict["output_file"] = str(out_path)
+        #limit_dict["status"] = "ok"
+        #limit_dict["output_file"] = str(out_path)
 
-        return json.dumps(limit_dict)
+        return json.dumps({"status": "ok", "output_file": str(out_path)})
 
 class CollectResultsTool(BaseTool):
     """
@@ -306,7 +304,8 @@ class CollectResultsTool(BaseTool):
     If you have previously calculated limits for many masses and quantiles and the user is asking for a summary table or plot, this will be the first step.
 
     Args:
-        individual_filenames: A comma separated list of the json file names containing results of individual limit calculations. These can be found in the output of the calls to ReadLimitOutput. 
+        individual_filenames: A comma separated list of the paths to the json files containing results of individual limit calculations. These must be full, absolute paths.
+        root_file_directory: The directory where the output of the limit calculation is stored.
         all_limits_file: The name of the json file where you will write all of the limits, for example, limits_all.json.
         combine_method: The combine_method used to produce these limits.
 
@@ -316,7 +315,7 @@ class CollectResultsTool(BaseTool):
 
     # ========== Runtime Fields ==========
     individual_filenames: str = RuntimeField(
-        description="A comma separated list of the json file names containing results of individual limit calculations. These can be found in the output of the calls to ReadLimitOutput."
+        description="A comma separated list of the paths to the json files containing results of individual limit calculations. These must be full, absolute paths."
     )
     all_limits_file: str = RuntimeField(
         default="limits_all.json",
@@ -339,9 +338,9 @@ class CollectResultsTool(BaseTool):
         file_list = self.individual_filenames.split(",")
         missing_files = []
         for i,f in enumerate(file_list):
-            file_list[i] = self.base_directory+"/"+ f.strip()
-            if not Path(self.base_directory+"/"+f.strip()).exists():
-                missing_files.append(f.strip())
+            #file_list[i] = self.base_directory + "/" + f.strip()
+            if not Path(file_list[i]).exists():
+                missing_files.append(file_list[i])
                 
         if len(missing_files) > 0:    
             return self.format_error(

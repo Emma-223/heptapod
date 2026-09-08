@@ -67,13 +67,22 @@ Below are details on how to perform specific tasks.
         - example for expected limits, 0.16 quantile, with 10 toys: method specific options will be `--LHCmode LHC-limits -T 10 --expectedFromGrid=0.16`
     - It is important to know that this calculates either the expected limit for a single quantile OR the observed limit.
 
+# Running a command
+
+The EXACT output from WriteCombineCommand should be passed to RunCommand.
+You MUST call the provided RunCommand to run ALL Combine commands. DO NOT run the output of WriteCombineCommand in a terminal.
+
+# Reading limit output
+
+The names of the output .root files are given in the output of RunCommand. You MUST call ReadLimitOutput to read .root files.
+
 # Typical CMS Combine workflow
 
 In general, the workflow will be as follows:
 
 1. Determine the appropriate command line options based on the task you were asked to perform. Refer to the above section "Building a command in CMS Combine". 
 2. Run the command from step 1, which will produce a root file. A RunCommand tool is provided to run commands. You must use this tool to run ALL Combine commands.
-3. Read the output from the root file.
+3. Read the output from the root file using ReadLimitOutput.
 4. If you have been asked to run over multiple mass points and/or quantiles, repeat steps 1, 2 and 3 for each combination of mass and quantile the user requested.
 5. If you have run over many masses and/or quantiles, collect the limit results into a single json file.
 6. Format the results. You should print a summary for the user. If requested, make results into a table or plot.

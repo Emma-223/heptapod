@@ -7,7 +7,8 @@ A toolkit to automate the running of CMS Combine.
 |`WriteCombineCommand`| Writes a command to be run
 |`RunCommand`| Runs a command made with WriteCombineCommand
 |`ReadLimitOutput`| Reads the expected and/or observed limits from a root file output by combine
-|---|---|
+|`CollectResults` | Collects results from multiple masses into a single json file
+---
 
 There is also a Combine SKILL.md file which defines some common terms, details the command line options for different methods, and outlines a typical Combine workflow.
 

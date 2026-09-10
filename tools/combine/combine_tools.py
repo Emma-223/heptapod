@@ -52,18 +52,10 @@ class WriteCombineCommandTool(BaseTool):
         default="",
         description="extra options provided by the user. Do not put anything in this argument unless the user gives you the specific option(s) to add."
     )
-    #limit_style: str = RuntimeField(
-    #    default = "",
-    #    description="Which test statistic to use in the HybridNew method. Can be one of LEP, TEV or LHC."
-    #)
-    #quantile_expected: str = RuntimeField(
-    #    default = "NA",
-    #    description = "Which quantile to run when calculating expected limits in the HybridNew method. Can be one of 0.025, 0.016, 0.5, 0.84, 0.975 or -1 if combine_method is HybridNew. Must be 'all' if combine_method is AsymptoticLimits. Otherwise, it is 'NA' (short for 'not applicable')."
-    #)
 
     # ========== State fields ==========
-    datacard_directory: str = StateField(
-        description="directory where datacards are stored"
+    datacards_by_mass: str = StateField(
+        description="json file which can be loaded into a python dict with masses as keys and absolute paths to datacards as values"
     )
     base_directory: str = StateField(
         description="Working directory"
@@ -76,14 +68,15 @@ class WriteCombineCommandTool(BaseTool):
 
     def _run(self) -> str:
             
-        #datacard_file = self.datacard_filename_template.format(self.mass)
-        #print("using datacard:",datacard_file)
-        datacard_file = list(Path(self.datacard_directory).glob("*M{}.txt".format(self.mass)))[0]
-        #print(datacard_file)
-        if not datacard_file.exists():
+        with open(self.datacards_by_mass, 'r') as f:
+            datacards_dict = json.load(f)
+        datacard_file = datacards_dict[str(self.mass)]
+        
+        if not Path(datacard_file).exists():
             return self.format_error(
                 error="File not found",
-                reason="The datacard file does not exist. The provided path was likely incorrect",
+                reason="The datacard file does not exist. The provided path was likely incorrect.",
+                context=f"datacard_file={datacard_file}",
                 suggestion="Check that the path to the datacards is correct and is an absolute path"
             )
         if self.combine_container != "":
@@ -94,40 +87,25 @@ class WriteCombineCommandTool(BaseTool):
                     context=f"combine_container={self.combine_container}",
                     suggestion="Check combine_container when constructing the tool"
                 )
+
+        # combine -M [method] [datacard] [options]
         combine_command = "combine " + "-M " + self.combine_method+ " "+ str(datacard_file) + " -m " + str(self.mass) + " --seed " + str(self.seed)
 
-        #if self.combine_method == "HybridNew":
-        #    combine_command += " --LHCmode LHC-limits "
-
-        #if self.combine_method == "HybridNew" and self.quantile_expected != "-1":
-        #    combine_command += " --expectedFromGrid={} ".format(self.quantile_expected)
-        print(self.method_specific_options)
         combine_command += " " + self.method_specific_options
         combine_command += " " + self.other_options
-        #print("the combine command will be:", " ".join(combine_command))
 
+        # run in a container if one was provided, otherwise don't
+        datacard_directory = Path(datacard_file).parent
         if self.combine_container != "":
-            cmd_to_run = "apptainer exec --no-home -B " + self.base_directory + " -B " + self.datacard_directory + " " + self.combine_container + " " + combine_command
+            cmd_to_run = "apptainer exec --no-home -B " + self.base_directory + " -B " + str(datacard_directory) + " " + self.combine_container + " " + combine_command
         else:
             cmd_to_run = combine_command
-
-        #print("The command that will run is:", " ".join(cmd_to_run))
-        #if self.combine_method == "AsymptoticLimits":
-        #    quantile = "all"
-        #elif self.combine_method == "HybridNew":
-        #    if self.quantile_expected == "-1":
-        #        quantile = "observed"
-        #    else:
-        #        quantile = self.quantile_expected
-        #else:
-        #    quantile = "Not applicable"
                 
         return json.dumps(
             {"status": "ok",
              "combine_command": cmd_to_run,
              "mass": self.mass,
              "combine_method": self.combine_method}
-             #"quantile": self.quantile_expected}
         )
         
 
@@ -145,7 +123,7 @@ class RunCommandTool(BaseTool):
         root_file_directory: the name of the directory for storing output root files"
 
     Returns (JSON):
-        {"status": "ok", "combine_command": "<str>", "output_root_file": "<name>", "mass": "<GeV>", "combine_method": "<str>"}
+        {"status": "ok", "combine_command": "<str>", "output_root_file_name": "<name>", "output_root_file_directory": "<name>", "mass": "<GeV>", "combine_method": "<str>"}
     """
 
     #========== Runtime Fields ==========
@@ -155,9 +133,6 @@ class RunCommandTool(BaseTool):
     mass: int = RuntimeField(
         description = "the signal mass hypothesis"
     )
-    #quantile: str = RuntimeField(
-    #    description = "the quantile being considered"
-    #)
     combine_method: str = RuntimeField(
         description = "the combine method being run"
     )
@@ -169,32 +144,31 @@ class RunCommandTool(BaseTool):
     base_directory: str = StateField(
         description="Working directory"
     )
-    #root_file_directory: str = StateField(
-    #    description="The directory for output root files"
-    #)
     
     def _run(self) -> str:
-        #output_dir = self.base_directory + "/" + self.root_file_directory
         output_dir = _safe_path(self.base_directory, self.root_file_directory)
         if not Path(output_dir).is_dir():
             Path(output_dir).mkdir(parents=True)
-            
+
+        # run command in output_dir so the root file ends up there
         process = subprocess.run(self.combine_command.split(),capture_output=True,text=True,cwd=output_dir)
+
+        # save stderr and stdout for later reference
         output_lines = process.stdout.split("\n")
-        #print(process.stdout)
-        #print(process.stderr)
         std_out_file = output_dir / "std_out_{}_{}.txt".format(self.combine_method,self.mass)
         std_err_file = output_dir / "std_err_{}_{}.txt".format(self.combine_method,self.mass)
         std_out_file.write_text(process.stdout)
         std_err_file.write_text(process.stderr)
-        
+
+        # the random seed is useful in making sure we get the right file
         seed = ""
         for line in output_lines:
             if "seed" in line:
                 seed = line.split()[-1]
 
+        # How the output file should look. We should find exactly one file that matches this pattern.
         output_pattern = "higgsCombine*"+self.combine_method+"*"+str(self.mass)+"*"+seed+"*"+".root"
-        #print(output_pattern)
+
         output_file = list(Path(output_dir).glob(output_pattern))
         if len(output_file) == 0:
             return self.format_error(
@@ -209,15 +183,15 @@ class RunCommandTool(BaseTool):
                 suggestion="Check that the output of each command is being saved to a separate directory"
             )
             
-        output_name = output_file[0]#.resolve()#.name
+        output_name = output_file[0].name
 
         return json.dumps(
             {
                 "status": "ok",
                 "combine_command": self.combine_command,
-                "output_root_file": str(output_name),
+                "output_root_file_name": str(output_name),
+                "output_root_file_directory": self.root_file_directory,
                 "mass": self.mass,
-                #"quantile": self.quantile,
                 "combine_method": self.combine_method
             }
         )
@@ -232,7 +206,8 @@ class ReadLimitOutputTool(BaseTool):
     and you want the limits on the signal strength r.
 
     Args: 
-        root_file: The root file produced by RunCommand when the Combine method is AsymptoticLimits or HybridNew. This file should already exist when you call this tool.
+        root_file_name: The name of root file produced by RunCommand when the Combine method is AsymptoticLimits or HybridNew. This file should already exist when you call this tool.
+        root_file_directory: The directory in which root_file is stored, relative to the working directory.
         output_limits_file: File name to write the limit results to, relative to the working directory. This should be a json file. It is just a filename, not a path.
         combine_method: The combine method used to create root_file
         mass: The signal mass hypothesis that produced these limits.
@@ -242,15 +217,18 @@ class ReadLimitOutputTool(BaseTool):
 
     """
     # ========== Runtime Fields ==========
-    root_file: str = RuntimeField(
-        description = "A root file output by combine with the method AsymptoticLimits or HybridNew."
+    root_file_name: str = RuntimeField(
+        description = "The name of root file produced by RunCommand when the Combine method is AsymptoticLimits or HybridNew. This file should already exist when you call this tool."
+    )
+    root_file_directory: str = RuntimeField(
+        description = "The directory in which root_file_name is stored, relative to the working directory."
     )
     output_limit_file: str = RuntimeField(
         default = "limits.json",
-        description = "File name to write the limit results to, relative to the working directory. This should be a json file. It is just a filename, not a path."
+        description = "File name to write the limit results to. This should be a json file. It is just a filename, not a path."
     )
     combine_method: str = RuntimeField(
-        description = "The combine method used to create root_file"
+        description = "The combine method used to create root_file_name"
     )
     mass: int = RuntimeField(
         description = "The signal mass hypothesis that produced these limits"
@@ -264,10 +242,10 @@ class ReadLimitOutputTool(BaseTool):
     # ========== run ==========
         
     def _run(self) -> str:
-        out_path = _safe_path(self.base_directory, Path(self.root_file).parent / self.output_limit_file)
-        root_file_full = Path(self.base_directory) / self.root_file
-        print(self.root_file)
-        print(root_file_full)
+        out_path = _safe_path(self.base_directory, Path(self.root_file_directory) / self.output_limit_file)
+        root_file_with_dir = Path(self.root_file_directory) / self.root_file_name
+        root_file_full = _safe_path(self.base_directory, root_file_with_dir)
+        
         if not root_file_full.exists():
             return self.format_error(
                 error="File not found",
@@ -279,7 +257,9 @@ class ReadLimitOutputTool(BaseTool):
                 error="Invalid filename",
                 reason="The name provided for the output limit json file is a path, not a plan filename.",
                 suggestion="Use a plain filename such as 'limits_[mass].json"
-            )
+            ) # agent kept wanting to make directories for this file to live in. We want to force it to live in the same directory as the other outputs
+
+        # standard ROOT way of getting info from a tree. Makes a dict with quantiles as the keys and limits as the values. 
         limit_file = TFile.Open(str(root_file_full))
         limit_tree = limit_file.Get("limit")
 
@@ -288,14 +268,13 @@ class ReadLimitOutputTool(BaseTool):
         for quantile in limit_tree:
             quantStr = str(round(quantile.quantileExpected,3))
             limit_dict[quantStr] = quantile.limit
-            #print(limit_dict)
-        limit_dict["mass"] = self.mass
-        print(limit_dict)
-        out_path.write_text(json.dumps(limit_dict))
-        #limit_dict["status"] = "ok"
-        #limit_dict["output_file"] = str(out_path)
 
-        return json.dumps({"status": "ok", "output_file": str(out_path)})
+        # put the mass in too
+        limit_dict["mass"] = self.mass
+
+        out_path.write_text(json.dumps(limit_dict))
+
+        return json.dumps({"status": "ok", "output_file_name": str(out_path.name), "output_directory": self.root_file_directory})
 
 class CollectResultsTool(BaseTool):
     """
@@ -304,18 +283,21 @@ class CollectResultsTool(BaseTool):
     If you have previously calculated limits for many masses and quantiles and the user is asking for a summary table or plot, this will be the first step.
 
     Args:
-        individual_filenames: A comma separated list of the paths to the json files containing results of individual limit calculations. These must be full, absolute paths.
+        individual_filenames: A comma separated list of the names of the json files containing results of individual limit calculations.
         root_file_directory: The directory where the output of the limit calculation is stored.
         all_limits_file: The name of the json file where you will write all of the limits, for example, limits_all.json.
         combine_method: The combine_method used to produce these limits.
 
     Returns (JSON):
-        {"status": "ok", "output_file": "<name>"}
+        {"status": "ok", "output_file": "<name>", "limits_by_mass_and_quantile": "<dict>"}
     """
 
     # ========== Runtime Fields ==========
     individual_filenames: str = RuntimeField(
-        description="A comma separated list of the paths to the json files containing results of individual limit calculations. These must be full, absolute paths."
+        description="A comma separated list of the names of the json files containing results of individual limit calculations."
+    )
+    root_file_directory: str = RuntimeField(
+        description="The directory where the output of the limit calculation is stored"
     )
     all_limits_file: str = RuntimeField(
         default="limits_all.json",
@@ -334,13 +316,16 @@ class CollectResultsTool(BaseTool):
         
     def _run(self) -> str:
         print(self.base_directory)
-        out_path = _safe_path(self.base_directory, self.all_limits_file)
+        out_path = _safe_path(self.base_directory, self.root_file_directory+"/"+self.all_limits_file)
         file_list = self.individual_filenames.split(",")
+
+        # check that files exist, replace names with full paths
         missing_files = []
         for i,f in enumerate(file_list):
-            #file_list[i] = self.base_directory + "/" + f.strip()
-            if not Path(file_list[i]).exists():
-                missing_files.append(file_list[i])
+            this_file_full = _safe_path(self.base_directory, self.root_file_directory+"/"+f.strip())
+            if not Path(this_file_full).exists():
+                missing_files.append(this_file_full)
+            file_list[i] = this_file_full
                 
         if len(missing_files) > 0:    
             return self.format_error(
@@ -352,7 +337,7 @@ class CollectResultsTool(BaseTool):
 
         limit_dict = {}
 
-        #HybridNew will have one file per mass per quantile. AsymptoticLimits will have all quantiles in one file per mass.
+        # HybridNew will have one file per mass per quantile. AsymptoticLimits will have all quantiles in one file per mass.
         for filename in file_list:
             with open(filename,'r') as this_file:
                 dict_this_file = json.load(this_file)
@@ -370,6 +355,5 @@ class CollectResultsTool(BaseTool):
         out_path.write_text(json.dumps(limit_dict))
 
         return json.dumps(
-            {"status": "ok", "output_file": str(out_path)}
+            {"status": "ok", "output_file": str(out_path), "limits_by_mass_and_quantile": limit_dict}
         )
-

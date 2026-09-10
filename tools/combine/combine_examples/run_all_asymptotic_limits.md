@@ -15,7 +15,7 @@ For each mass hypothesis:
 3. Read the output for this mass (in other words, read the root file produced in step 2).
 4. When you have finished steps 1, 2 and 3, proceed to the next mass.
 
-When you are done running over all masses, collect the limit results into a single json file. Then print a summary table of the observed and median expected limits for each mass.
+When you are done running over all masses, collect the limit results into a single json file.
 
 # Required additional options to Combine commands
 

@@ -35,8 +35,8 @@ config:
     description: Enable INSPIRE query caching.
     type: boolean
     default: false
-  - name: datacard_directory
-    description: directory storing datacards to be used with CMS Combine
+  - name: datacards_by_mass
+    description: json file which can be loaded into a python dict with masses as keys and absolute paths to CMS Combine datacards as values
     type: path
     required: false
   - name: combine_container
@@ -94,8 +94,12 @@ bundles:
 
   # ── Statistical analysis in CMS Combine ───────────
   combine: 
-    requires: [datacard_directory]
+    requires: [datacards_by_mass]
     deps: [root]
+    # note: the root version that Combine itself needs will be included in the container or CMSSW environment you use to run Combine.
+    # It is included as a dependency here purely for ReadLimitOutputTool.
+    # Further, note that while root can be installed with pip, this seems to be a very new thing, and it has different version numbers from the main root documentation. See https://pypi.org/project/root/
+    # That being said, ReadLimitOutput just needs to open a file and pull at most 6 numbers from a tree, so we don't really care at this stage.
     
 tools:
   - module: tools.analysis.conversions

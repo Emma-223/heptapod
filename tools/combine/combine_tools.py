@@ -150,6 +150,10 @@ class RunCommandTool(BaseTool):
         if not Path(output_dir).is_dir():
             Path(output_dir).mkdir(parents=True)
 
+        # save exact command that was run for later reference
+        cmd_file = output_dir / "command_{}_{}".format(self.combine_method,self.mass)
+        cmd_file.write_text(self.combine_command)
+
         # run command in output_dir so the root file ends up there
         process = subprocess.run(self.combine_command.split(),capture_output=True,text=True,cwd=output_dir)
 
@@ -159,7 +163,7 @@ class RunCommandTool(BaseTool):
         std_err_file = output_dir / "std_err_{}_{}.txt".format(self.combine_method,self.mass)
         std_out_file.write_text(process.stdout)
         std_err_file.write_text(process.stderr)
-
+        
         # the random seed is useful in making sure we get the right file
         seed = ""
         for line in output_lines:

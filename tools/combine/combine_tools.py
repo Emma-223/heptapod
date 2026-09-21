@@ -25,6 +25,7 @@ class WriteCombineCommandTool(BaseTool):
         seed: The seed to use for randomization. Use -1 unless the user requests a specific seed.
         method_specific_options: specific options for the chosen method.
         other_options: extra options provided by the user. Do not put anything in this argument unless the user gives you the specific option(s) to add.
+        is_condor_job: Will the output of this tool be passed to WriteGridGenerationCondorFiles and run as an HTCondor job?
 
     Returns (JSON):
         {status: "ok", "combine_command": "<str>", combine_method: "<str>", mass: "<GeV>"}
@@ -51,6 +52,10 @@ class WriteCombineCommandTool(BaseTool):
     other_options: str = RuntimeField(
         default="",
         description="extra options provided by the user. Do not put anything in this argument unless the user gives you the specific option(s) to add."
+    )
+    is_condor_job: bool = RuntimeField(
+        default = False,
+        description = "Will the output of this tool be passed to WriteGridGenerationCondorFiles and run as an HTCondor job?"
     )
 
     # ========== State fields ==========
@@ -96,7 +101,7 @@ class WriteCombineCommandTool(BaseTool):
 
         # run in a container if one was provided, otherwise don't
         datacard_directory = Path(datacard_file).parent
-        if self.combine_container != "":
+        if (self.combine_container != "") and not self.is_condor_job:
             cmd_to_run = "apptainer exec --no-home -B " + self.base_directory + " -B " + str(datacard_directory) + " " + self.combine_container + " " + combine_command
         else:
             cmd_to_run = combine_command

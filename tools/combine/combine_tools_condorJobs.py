@@ -18,7 +18,8 @@ class GetGridPointsTool(BaseTool):
     rMax: the maximum value of r
     n_points: the total number of points to divide the range rMin - rMax into
     n_points_per_job: the number of points to run in each HTCondor job
-    output_filename: the name of the json file where the job splitting data will be saved, e.g. "grid_points.json"
+    mass: the signal mass hypothesis under consideration
+    quantile: the quantile under consideration
 
     Returns (JSON):
     {"status":"ok", "output_file":<name>}
@@ -41,9 +42,11 @@ class GetGridPointsTool(BaseTool):
         default = 10,
         description = "the number of points to run in each HTCondor job"
     )
-    output_filename: str = RuntimeField(
-        default = "grid_points.json",
-        description = "the name of the json file where the job splitting data will be saved, e.g. grid_points.json"
+    mass: int = RuntimeField(
+        description = "the signal mass hypothesis under consideration"
+    )
+    quantile: float = RuntimeField(
+        description = "the quantile under consideration"
     )
 
     # ========== State Fields ==========
@@ -53,7 +56,10 @@ class GetGridPointsTool(BaseTool):
     #===================================
 
     def _run(self) -> str:
-        output_file = _safe_path(self.base_directory, self.output_filename)
+        output_path = _safe_path(self.base_directory, f"gridGen/{self.mass}/{self.quantile}".replace(".","p"))
+        if not output_path.exists():
+            output_path.mkdir(exist_ok=True, parents=True)
+        output_file = output_path / "grid_points.json"
 
         r_list = np.linspace(self.rMin,self.rMax,self.n_points,endpoint=True).tolist()
         n_jobs = math.ceil(self.n_points/self.n_points_per_job)
@@ -84,8 +90,7 @@ class WriteGridGenerationCondorFilesTool(BaseTool):
     mass: The signal mass hypothesis to consider
     quantile: the quantile to consider. One of 0.025, 0.16, 0.5, 0.84, 0.975 or -1, where -1 is the observed limit.
     combine_command: The combine command output by WriteCombineCommand for this mass and quantile
-    grid_points_file: The json file output by GetGridPoints for this mass and quantile, containing the list of r values to consider.
-    output_directory: The output directory for the calculation, e.g. gridGen
+    input_files: The input files to be transferred to the job, as a comma separated list.
 
     Returns (JSON):
     {"status": "ok", "submit_file": <name>, "executable_file": <name>}
@@ -102,12 +107,9 @@ class WriteGridGenerationCondorFilesTool(BaseTool):
     combine_command: str = RuntimeField(
         description = "The combine command output by WriteCombineCommand for this mass and quantile"
     )
-    grid_points_file: str = RuntimeField(
-        description = "The json file output by GetGridPoints for this mass and quantile, containing the list of r values to consider."
-    )
-    output_directory: str = RuntimeField(
-        default = "gridGen",
-        description = "The output directory for the calculation, e.g. gridGen"
+    input_files: str = RuntimeField(
+        default = "",
+        description = "The input files to be transferred to the job, as a comma separated list."
     )
 
     # =========== State Fields ===========
@@ -120,13 +122,13 @@ class WriteGridGenerationCondorFilesTool(BaseTool):
 
     def _run(self) -> str:
 
-        output_path_relative = self.output_directory + f"/{self.mass}/{self.quantile}".replace(".","p")
+        output_path_relative = "gridGen" + f"/{self.mass}/{self.quantile}".replace(".","p")
         output_path_full = _safe_path(self.base_directory, output_path_relative)
 
         if not output_path_full.exists():
             output_path_full.mkdir(parents=True, exist_ok=True)
 
-        grid_file = _safe_path(self.base_directory, self.grid_points_file)
+        grid_file = _safe_path(output_path_full, "grid_points.json")
         if not grid_file.exists():
             return self.format_error(
                 error="File not found",
@@ -142,6 +144,29 @@ class WriteGridGenerationCondorFilesTool(BaseTool):
                 suggestion="Rerun WriteCombineCommand with combine_method=HybridNew"
             )
 
+        if (self.quantile > 0) and (not "--expectedFromGrid" in self.combine_command):
+            return self.format_error(
+                error="Did not specify quantile in combine_command",
+                reason="If the quantile is NOT -1, the quantile needs to be specified in the method_specific_options string with --expectedFromGrid=[quantile]",
+                context=f"combine_command={self.combine_command}",
+                suggestion="Rerun WriteCombineCommand and add --expectedFromGrid=[quantile] to the string you input to method_specific_options"
+            )
+
+        if not "-T" in self.combine_command:
+            return self.format_error(
+                error="Did not correctly specify number of toys",
+                reason="The number of toys must be specified in the method_specific_options string like -T [number]",
+                context=f"combine_command={self.combine_command}",
+                suggestion="Rerun WriteCombineCommand and add -T [number of toys] to the string you input to method_specific_options."
+            )
+            
+        if "apptainer exec" in self.combine_command:
+            return self.format_error(
+                error="wrong run method for condor job",
+                reason="combine command starts with 'apptainer exec'",
+                suggestion="Rerun WriteCombineCommand with is_condor_job=True"
+            )
+
         # Write condor.sh
         with open(grid_file,'r') as f:
             grid_points_data = json.load(f)
@@ -153,9 +178,10 @@ class WriteGridGenerationCondorFilesTool(BaseTool):
                 "#!/bin/sh \n",
                 "ulimit -s unlimited \n",
                 "set -e \n",
-                f"if [ -f {str(output_path_full)}/higgsCombineTotalOutput_jobId$1.root ]; then",
-                f"echo \"the output file {str(output_path_full)}/higgsCombineTotalOutput_jobId$1.root already exists, cancelling job\"",
-                "exit 0"
+                f"if [ -f {str(output_path_full)}/higgsCombineTotalOutput_jobId$1.root ]; then\n",
+                f"echo \"the output file {str(output_path_full)}/higgsCombineTotalOutput_jobId$1.root already exists, cancelling job\"\n",
+                "exit 0\n",
+                "fi\n\n"
             ])
             for job_id in grid_points_data["grid"].keys():
                 rVals = grid_points_data["grid"][job_id]
@@ -180,7 +206,11 @@ class WriteGridGenerationCondorFilesTool(BaseTool):
 
         text = Path("template_condor_sub.txt").read_text()
         nJobs = len(list(grid_points_data["grid"].keys()))
-        submit_path.write_text(text.format(output_path=output_path_relative, nJobs = nJobs))
+        if self.input_files != "":
+            input_files_line = "transfer_input_files="+self.input_files
+        else:
+            input_files_line = "# no input files for this job"
+        submit_path.write_text(text.format(output_path=output_path_full, nJobs = nJobs, input_files_line=input_files_line))
 
         # Write json with expected output
         json_path = output_path_full / "expected_output_files.json"
@@ -202,7 +232,7 @@ class CheckJobOutputTool(BaseTool):
     Args:
     mass: The signal mass hypothesis being considered
     quantile: "the quantile to consider. One of 0.025, 0.16, 0.5, 0.84, 0.975 or -1, where -1 is the observed limit."
-    output_directory: the directory in which output is stored, e.g. gridGen or limits
+    output_directory: the directory in which output you are checking is stored. One of gridGen or limits
 
     Returns (JSON):
     {"status": "ok", "all_files_exist": True}
@@ -216,7 +246,7 @@ class CheckJobOutputTool(BaseTool):
         description = "the quantile to consider. One of 0.025, 0.16, 0.5, 0.84, 0.975 or -1, where -1 is the observed limit."
     )
     output_directory: str = RuntimeField(
-        description = "the directory in which output is stored, e.g. gridGen or limits"
+        description = "the directory in which output is stored, One of gridGen or limits"
     )
 
     # ========== State Fields ==========
@@ -258,3 +288,111 @@ class CheckJobOutputTool(BaseTool):
             {"status": "ok",
              "all_files_exist": True}
         )
+
+class LookupRRangeTool(BaseTool):
+    """
+    Looks up the range of signal strength r to be considered in a grid generation calculation for a given mass and quantile.
+
+    Args:
+    mass: The signal mass hypothesis to use
+    quantile: the quantile to consider. One of 0.025, 0.16, 0.5, 0.84, 0.975 or -1, where -1 is the observed limit.
+
+    Returns (JSON):
+    {"status": "ok", "rMin": <float>, "rMax", <float>}
+    """
+
+    # ========== Runtime Fields ==========
+    mass: int = RuntimeField(
+        description = "The signal mass hypothesis to use"
+    )
+    quantile: float = RuntimeField(
+        description = "the quantile to consider. One of 0.025, 0.16, 0.5, 0.84, 0.975 or -1, where -1 is the observed limit."
+    )
+
+    # ========== State Fields ==========
+    base_directory: str = StateField(
+        description = "working directory"
+    )
+
+    def _run(self) -> str:
+        filepath = _safe_path(self.base_directory, "gridGen")
+        rRangesFile = filepath / "rRangesByMassAndQuant.json"
+
+        if not rRangesFile.exists():
+            return self.format_error(
+                error = "file does not exist",
+                reason = f"no rRangesByMassAndQuant.json file found in {base_directory}/gridGen",
+                suggestion = "Run InitializeRRagnes to create it"
+            )
+            
+        with rRangesFile.open('r') as f:
+            rRanges = json.load(f)
+
+        mass = str(self.mass)
+        quant = str(self.quantile)
+        rMin = rRanges[mass][quant]["rMin"]
+        rMax = rRanges[mass][quant]["rMax"]
+        return json.dumps({
+            "status": "ok",
+            "rMin": rMin,
+            "rMax": rMax,
+            "mass": self.mass,
+            "quantile":self.quantile
+        })
+
+class InitializeRRangesTool(BaseTool):
+    """
+    Uses the result of an asymptotic limit calculation to guess the r ranges for a grid generation calculation. Gets r ranges for all masses and quantiles at the same time, so you only need to run this once.
+    Results are saved to gridGen/rRangesByMassAndQuant.json
+
+    Args:
+    asymptotic_limits_file: the json file containing asymptotic limits on r, relative to the working directory.
+
+    Returns (JSON):
+    {"status": "ok", "output_file": <name>}
+    """
+
+    # ========== Runtime Fields ===========
+    asymptotic_limits_file: str = RuntimeField(
+        default = "AsymptoticLimits/limits_all.json",
+        description = "the json file containing asymptotic limits on r, relative to the working directory."
+    )
+
+    # ========== State Fields ==========
+    base_directory: str = StateField(
+        description = "working directory"
+    )
+
+    def _run(self) -> str:
+        gridGenPath = _safe_path(self.base_directory, "gridGen")
+        if not gridGenPath.exists():
+            gridGenPath.mkdir(parents=True)
+        
+        output_path = gridGenPath / "rRangesByMassAndQuant.json"
+
+        limits_file_full = _safe_path(self.base_directory, self.asymptotic_limits_file)
+        with limits_file_full.open('r') as f:
+            asymptotic_limits = json.load(f)
+
+        #print(asymptotic_limits)
+        rRanges = {}
+        # Default is 0 to 2*[asymptotic_limit] for observed and high quantiles, 3*limit for low quantiles.
+        for mass in asymptotic_limits.keys():
+            rRanges[mass] = {}
+            for quant in asymptotic_limits[mass].keys():
+                limit = asymptotic_limits[mass][quant]
+                rMin = 0
+                if float(quant) > 0 and float(quant) < 0.5:
+                    rMax = 3*limit
+                else:
+                    rMax = 2*limit
+                rRanges[mass][quant] = {}
+                rRanges[mass][quant]["rMin"] = rMin
+                rRanges[mass][quant]["rMax"] = rMax
+
+        with output_path.open('w') as f:
+            json.dump(rRanges, f)
+
+        return json.dumps({
+            "status":"ok","output_file":str(output_path)
+        })

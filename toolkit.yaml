@@ -369,3 +369,23 @@ tools:
     name: CollectResultsTool
     description: Collects results from multiple masses into a single json file
     bundle: combine
+  - module: tools.combine.combine_tools_condorJobs
+    name: GetGridPointsTool
+    description: Divides a range rMin to rMax into n_points evenly spaced points.Then divides those points up among HTCondor jobs with n_points_per_job in each job and saves the job splitting to a json file
+    bundle: combine
+  - module: tools.combine.combine_tools_condorJobs
+    name: WriteGridGenerationCondorFilesTool
+    description: Writes the submit and executable files to run grid generation with CMS Combine as HTCondor jobs for a given mass hypothesis and quantile
+    bundle: combine
+  - module: tools.combine.combine_tools_condorJobs
+    name: CheckJobOutputTool
+    description: Checks that the actual output of an HTCondor job submission matches the expected output
+    bundle: combine
+  - module: tools.combine.combine_tools_condorJobs
+    name: LookupRRangeTool
+    description: Looks up the range of signal strength r to be considered in a grid generation calculation for a given mass and quantile
+    bundle: combine
+  - module: tools.combine.combine_tools_condorJobs
+    name: InitializeRRangesTool
+    description: Uses the result of an asymptotic limit calculation to guess the r ranges for a grid generation calculation
+    bundle: combine

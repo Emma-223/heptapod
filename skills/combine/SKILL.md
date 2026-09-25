@@ -27,11 +27,9 @@ Typically, we calculate limits for several different values of some physical qua
 
 # Building a command in CMS Combine
 
-All commands in CMS Combine follow a common format:
-
-`combine -d [datacard] -M [method] -m [mass] --seed [seed] [method specific options] [other options]`
-
-From the user input, you need to determine method, mass, seed, method specific options and other options.
+The WriteCombineCommand tool takes 7 inputs: method, mass, seed, rMin, rMax, method specific options and user options.
+You need to determine the correct inputs.
+Details about each input are provided below:
 
 Method: dictates which task Combine will run. For example, will it produce limits, or run a significance calculation, or do a likelihood scan? This can be one of:
     - AsymptoticLimits
@@ -42,47 +40,26 @@ Mass: the signal mass hypothesis for the physics process being studied. If you i
 
 Seed: the seed Combine will use for randomization. Use -1 unless the user tells you to use a specific seed.
 
+rMin: the minimum value of r
+
+rMax: the maximum value of r
+
 Method specific options: An option or combination of options specific to a given Combine method. Put these options into a single string to give to WriteCombineCommand.
 
-Other options: In some cases, the user may specify additional options they want you to use. Put these options into a single string to give to WriteCombineCommand. 
+User options: In some cases, the user may specify additional options they want you to use. Put these options into a single string to give to WriteCombineCommand. These are IN ADDITION TO the method specific options and DO NOT replace them.
 
-Below are details on how to perform specific tasks.
+Below are references for how to determine the combine_method and method_specific_options arguments.
 
 ## Asymptotic Limits
 
-    - Set the method argument to AsymptoticLimits. 
-    - No other options are reuqired unless the user specifies them.
-    - It is important to know that this calculates all quantiles of expected limits and the observed limit.
+For instructions on determining the method-specific options for asymptotic limits, see **`references/asymptoticLimits.md`**
 
-## Frequentist Limits (also called limits with toys) - simple models
+## Limits with toys
 
-    - Set the method argument to HybridNew
-    - method specific options:
-        - You must include the option --LHCmode LHC-limits
-        - Specify the number of toys with -T [number]
-        - If you are asked for expected limits, specify the quantile with --expectedFromGrid=[quantile].
-        - If the user asks for the expected limit but does not specify a quantile, assume it is 0.5.
-        - If you are asked for observed limits, do not use the --expectedFromGrid={} option.
-        - example for observed limits with 10 toys: method specific options will be `--LHCmode LHC-limits -T 10`
-        - example for expected limits, 0.16 quantile, with 10 toys: method specific options will be `--LHCmode LHC-limits -T 10 --expectedFromGrid=0.16`
-    - It is important to know that this calculates either the expected limit for a single quantile OR the observed limit.
+For instructions on determining the method-specific options for calculating limits with toys, see **`references/frequentistLimits.md`**.
 
-# Running a command
+Sometimes, this calculation split up over many computing jobs. This is called "grid generation". For instructions on grid generation, see **`references/gridGeneration.md`**
 
-The EXACT output from WriteCombineCommand should be passed to RunCommand.
-You MUST call the provided RunCommand to run ALL Combine commands. DO NOT run the output of WriteCombineCommand in a terminal.
+# Running
 
-# Reading limit output
-
-The names of the output .root files are given in the output of RunCommand. You MUST call ReadLimitOutput to read .root files.
-
-# Typical CMS Combine workflow
-
-In general, the workflow will be as follows:
-
-1. Determine the appropriate command line options based on the task you were asked to perform. Refer to the above section "Building a command in CMS Combine". 
-2. Run the command from step 1, which will produce a root file. A RunCommand tool is provided to run commands. You must use this tool to run ALL Combine commands.
-3. Read the output from the root file using ReadLimitOutput.
-4. If you have been asked to run over multiple mass points and/or quantiles, repeat steps 1, 2 and 3 for each combination of mass and quantile the user requested.
-5. If you have run over many masses and/or quantiles, collect the limit results into a single json file.
-6. Format the results. You should print a summary for the user. If requested, make results into a table or plot.
+For tasks you run interactively (i.e. NOT as HTCondor jobs), see **`references/runningInteractively.md`**.

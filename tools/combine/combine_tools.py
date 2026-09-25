@@ -24,8 +24,10 @@ class WriteCombineCommandTool(BaseTool):
         mass: The signal mass hypothesis to use.
         seed: The seed to use for randomization. Use -1 unless the user requests a specific seed.
         method_specific_options: specific options for the chosen method.
-        other_options: extra options provided by the user. Do not put anything in this argument unless the user gives you the specific option(s) to add.
+        user_options: extra options provided by the user. Do not put anything in this argument unless the user gives you the specific option(s) to add.
         is_condor_job: Will the output of this tool be passed to WriteGridGenerationCondorFiles and run as an HTCondor job?
+        rMin: The minimum value of r. Defaults to 0.
+        rMax: The maximum value of r. Defaults to 20.
 
     Returns (JSON):
         {status: "ok", "combine_command": "<str>", combine_method: "<str>", mass: "<GeV>"}
@@ -49,13 +51,21 @@ class WriteCombineCommandTool(BaseTool):
         default="",
         description="specific options for the chosen method."
     )
-    other_options: str = RuntimeField(
+    user_options: str = RuntimeField(
         default="",
         description="extra options provided by the user. Do not put anything in this argument unless the user gives you the specific option(s) to add."
     )
     is_condor_job: bool = RuntimeField(
         default = False,
         description = "Will the output of this tool be passed to WriteGridGenerationCondorFiles and run as an HTCondor job?"
+    )
+    rMin: float = RuntimeField(
+        default=0.0,
+        description="The minimum value of r. Defaults to 0."
+    )
+    rMax: float = RuntimeField(
+        default = 20.0,
+        description="The maximum value of r. Defaults to 20."
     )
 
     # ========== State fields ==========
@@ -94,10 +104,10 @@ class WriteCombineCommandTool(BaseTool):
                 )
 
         # combine -M [method] [datacard] [options]
-        combine_command = "combine " + "-M " + self.combine_method+ " "+ str(datacard_file) + " -m " + str(self.mass) + " --seed " + str(self.seed)
+        combine_command = f"combine -M {self.combine_method} {datacard_file} -m {self.mass} --seed {self.seed} --rMin {self.rMin} --rMax {self.rMax} "
 
         combine_command += " " + self.method_specific_options
-        combine_command += " " + self.other_options
+        combine_command += " " + self.user_options
 
         # run in a container if one was provided, otherwise don't
         datacard_directory = Path(datacard_file).parent
@@ -125,7 +135,6 @@ class RunCommandTool(BaseTool):
     Args:
         combine_command: the command to run, output by WriteCombineCommand
         mass: the signal mass hypothesis
-        root_file_directory: the name of the directory for storing output root files"
 
     Returns (JSON):
         {"status": "ok", "combine_command": "<str>", "output_root_file_name": "<name>", "output_root_file_directory": "<name>", "mass": "<GeV>", "combine_method": "<str>"}
@@ -141,9 +150,6 @@ class RunCommandTool(BaseTool):
     combine_method: str = RuntimeField(
         description = "the combine method being run"
     )
-    root_file_directory: str = RuntimeField(
-        description = "the name of the directory for storing output root files"
-    )
 
     #========== State Fields ==========
     base_directory: str = StateField(
@@ -151,7 +157,8 @@ class RunCommandTool(BaseTool):
     )
     
     def _run(self) -> str:
-        output_dir = _safe_path(self.base_directory, self.root_file_directory)
+        #Name the directory after the method used, store results in a sub-directory named for the mass
+        output_dir = _safe_path(self.base_directory, f"{self.combine_method}/{self.mass}")
         if not Path(output_dir).is_dir():
             Path(output_dir).mkdir(parents=True)
 
@@ -199,7 +206,7 @@ class RunCommandTool(BaseTool):
                 "status": "ok",
                 "combine_command": self.combine_command,
                 "output_root_file_name": str(output_name),
-                "output_root_file_directory": self.root_file_directory,
+                "output_directory": str(output_dir),
                 "mass": self.mass,
                 "combine_method": self.combine_method
             }

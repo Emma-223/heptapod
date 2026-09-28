@@ -8,6 +8,19 @@ import math
 
 from .combine_tools import _safe_path
 
+def WriteCondorSubFile(output_path, nJobs=1, inputFiles=""):
+    submit_path = output_path / "condor.sub"
+    text = Path("template_condor_sub.txt").read_text()
+    
+    if self.input_files != "":
+        input_files_line = "transfer_input_files="+self.input_files
+    else:
+        input_files_line = "# no input files for this job"
+        
+    submit_path.write_text(text.format(output_path=output_path, nJobs = nJobs, input_files_line=input_files_line))
+    return submit_path
+
+
 class GetGridPointsTool(BaseTool):
     """
     Divides a range rMin to rMax into n_points evenly spaced points.
@@ -202,6 +215,7 @@ class WriteGridGenerationCondorFilesTool(BaseTool):
             ])
 
         # write condor.sub - only thing that changes is output file path and queue number
+        '''
         submit_path = output_path_full / "condor.sub"
 
         text = Path("template_condor_sub.txt").read_text()
@@ -211,6 +225,9 @@ class WriteGridGenerationCondorFilesTool(BaseTool):
         else:
             input_files_line = "# no input files for this job"
         submit_path.write_text(text.format(output_path=output_path_full, nJobs = nJobs, input_files_line=input_files_line))
+        '''
+        nJobs = len(list(grid_points_data["grid"].keys()))
+        submit_path = WriteCondorSubFile(output_path_full, nJobs, self.input_files)
 
         # Write json with expected output
         json_path = output_path_full / "expected_output_files.json"
@@ -225,14 +242,143 @@ class WriteGridGenerationCondorFilesTool(BaseTool):
             "executable_file":str(executable_path)
         })
 
+class WriteExtractOutputCondorFilesTool(BaseTool):
+    """
+    Writes the HTCondor submit and executable files for extacting limits from grid generation, for a given mass and quantile.
+
+    Args:
+    mass: the signal mass hypothesis
+    quantile: the quantile
+    combine_command: The combine command output by WriteCombineCommand for this mass and quantile
+    input_files: The input files to be transferred to the job, as a comma separated list.
+    make_plot: Will we make a plot of the grid scan range?
+
+    Returns (JSON):
+    {"status": "ok", "submit_file": <name>, "executable_file": <name>}
+    """
+
+    # ========== Runtime Fields ==========
+    mass: int = RuntimeField(
+        description = "the signal mass hypothesis"
+    ),
+    quantile: float = RuntimeField(
+        default = -1,
+        description = "the quantile"
+    )
+    combine_command: str = RuntimeField(
+        description = "The combine command output by WriteCombineCommand for this mass and quantile"
+    )
+    input_files: str = RuntimeField(
+        default = "",
+        description = "The input files to be transferred to the job, as a comma separated list."
+    )
+    make_plot: bool = RuntimeField(
+        default = True,
+        description = "Will we make a plot of the grid scan range?"
+    )
+    # ======== State Fields ==========
+    base_directory: str = StateField(
+        description = "working directory"
+    )
+
+    def _run(self)->str:
+
+        limits_dir = _safe_path(self.base_directory, f"limits/{self.mass}/{self.quantile}".replace(".","p"))
+        if not limits_dir.exists():
+            limits_dir.mkdir(parents=True)
+
+        grid_gen_dir = _safe_path(self.base_directory, f"gridGen/{self.mass}/{self.quantile}".replace(".","p"))
+        grid_gen_output = grid_gen_dir / "expected_output_files.json"
+        if not grid_gen_output.exists():
+            return self.format_error(
+                error="File does not exist",
+                reason="The file with the location(s) of grid generation results for this mass/quantile does not exist",
+                context=f"grid_gen_dir={grid_gen_dir}",
+                suggestion="Inform the user that grid generation has not been completed for this combination of mass and quantile.
+            )
+
+        if not "HybridNew" in self.combine_command:
+            return self.format_error(
+                error="wrong combine method used",
+                reason="this tool writes HTCondor files for extracting the output of grid generation, which uses the HybridNew method",
+                suggestion="rerun WriteCombineCommand with method HybridNew"
+            )
+
+        if "-T" in self.combine_command:
+            return self.format_error(
+                error="wrong method_specific_options in combine command",
+                reason="It is not necessary to specify a number of toys in this step",
+                suggestion="rerun WriteCombineCommand, removing -T [number] from the method_specific_options string"
+            )
+
+        if "apptainer exec" in self.combine_command:
+            return self.format_error(
+                error="wrong run method for condor job",
+                reason="combine command starts with 'apptainer exec'",
+                suggestion="Rerun WriteCombineCommand with is_condor_job=True"
+            )
+
+        with grid_gen_output.open('r') as f:
+            file_list = json.load(f)["file_list"]
+
+        # make absolute paths for the files
+        for i,f in enumerate(file_list):
+            file_list[i] = str(grid_gen_dir) + "/" + f
+
+        executable_path = limits_dir / condor.sh
+        #submit_path = limits_dir / condor.sub
+        merged_grid_file = "higgsCombineGridOutput.root"
+        
+        with executable_path.open('w') as f:
+            f.writelines([
+                "#!/bin/sh \n",
+                "ulimit -s unlimited \n",
+                "set -e \n\n",
+                f"hadd {merged_grid_file} {" ".join(file_list)} \n\n"
+            ])
+            cmd = self.combine_command
+            plot_file = f"limit_scan_m{self.mass}_q{self.quantile}.pdf"
+            if make_plot:
+                self.combine_command += f" --plot={plot_file} "
+                
+            cmd += f" --grid={merged_grid_file} --readHybridResults -n .LimitOutput "
+            
+            f.write(cmd + "\n")
+            f.write("echo 'command finished running'")
+
+        '''
+        text = Path("template_condor_sub.txt").read_text()
+        nJobs = 1
+        if self.input_files != "":
+            input_files_line = "transfer_input_files="+self.input_files
+        else:
+            input_files_line = "# no input files for this job"
+        submit_path.write_text(text.format(output_path=limits_dir, nJobs = nJobs, input_files_line=input_files_line))
+        '''
+        submit_path = WriteCondorSubFile(limits_dir, 1, self.input_files)
+
+        expected_output = [merged_grid_file, "higgsCombine*LimitOutput.root"]
+        if make_plot:
+            expected_output.append(plot_file)
+
+        expected_outputs_file = limits_dir / "expected_output_files.json"
+        with expected_outputs_file.open('w') as f:
+            json.dump({"file_list": expected_output})
+        
+        return json.dumps({
+            "status":"ok",
+            "executable_file": str(executable_path),
+            "submit_file": str(submit_path)
+        })
+
 class CheckJobOutputTool(BaseTool):
     """
-    Checks that the actual output of an HTCondor job submission matches the expected output determined in WriteGridGenerationCondorFiles.
+    Checks that the actual output of an HTCondor job submission matches the expected output.
 
     Args:
     mass: The signal mass hypothesis being considered
-    quantile: "the quantile to consider. One of 0.025, 0.16, 0.5, 0.84, 0.975 or -1, where -1 is the observed limit."
-    output_directory: the directory in which output you are checking is stored. One of gridGen or limits
+    quantile: the quantile to consider. One of 0.025, 0.16, 0.5, 0.84, 0.975 or -1, where -1 is the observed limit.
+    output_directory: the name of the directory in which output you are checking is stored. One of gridGen or limits
 
     Returns (JSON):
     {"status": "ok", "all_files_exist": True}
@@ -246,7 +392,7 @@ class CheckJobOutputTool(BaseTool):
         description = "the quantile to consider. One of 0.025, 0.16, 0.5, 0.84, 0.975 or -1, where -1 is the observed limit."
     )
     output_directory: str = RuntimeField(
-        description = "the directory in which output is stored, One of gridGen or limits"
+        description = "the name of the directory in which output is stored, One of gridGen or limits"
     )
 
     # ========== State Fields ==========

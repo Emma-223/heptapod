@@ -254,7 +254,7 @@ class WriteExtractLimitOutputCondorFilesTool(BaseTool):
     # ========== Runtime Fields ==========
     mass: int = RuntimeField(
         description = "the signal mass hypothesis"
-    ),
+    )
     quantile: float = RuntimeField(
         default = -1,
         description = "the quantile"
@@ -334,7 +334,7 @@ class WriteExtractLimitOutputCondorFilesTool(BaseTool):
         for i,f in enumerate(file_list):
             file_list[i] = str(grid_gen_dir) + "/" + f
 
-        executable_path = limits_dir / condor.sh
+        executable_path = limits_dir / "condor.sh"
         #submit_path = limits_dir / condor.sub
         merged_grid_file = "higgsCombineGridOutput.root"
         
@@ -347,7 +347,7 @@ class WriteExtractLimitOutputCondorFilesTool(BaseTool):
             ])
             cmd = self.combine_command
             plot_file = f"limit_scan_m{self.mass}_q{self.quantile}.pdf"
-            if make_plot:
+            if self.make_plot:
                 self.combine_command += f" --plot={plot_file} "
                 
             cmd += f" --grid={merged_grid_file} --readHybridResults -n .LimitOutput "
@@ -361,21 +361,23 @@ class WriteExtractLimitOutputCondorFilesTool(BaseTool):
         with cmd_file.open("w") as f:
             f.write(cmd)
             
-        input_files = self.input_files
         if self.save_test_stats:
             # Depending on how you have combine setup and how you run jobs,
             # this script may not be available in your job without transferring it as an input file.
-            input_files.append(self.combine_directory+"/test/plotTestStatCLs.py")
+            if not self.input_files=="":
+                input_files = self.input_files + "," +self.combine_directory+"/test/plotTestStatCLs.py"
+            else:
+                input_files = self.combine_directory+"/test/plotTestStatCLs.py"
             
-        submit_path = WriteCondorSubFile(limits_dir, 1, self.input_files)
+        submit_path = WriteCondorSubFile(limits_dir, 1, input_files)
 
         expected_output = [merged_grid_file, "higgsCombine*LimitOutput.root"]
-        if make_plot:
+        if self.make_plot:
             expected_output.append(plot_file)
 
         expected_outputs_file = limits_dir / "expected_output_files.json"
         with expected_outputs_file.open('w') as f:
-            json.dump({"file_list": expected_output})
+            json.dump({"file_list": expected_output},f)
         
         return json.dumps({
             "status":"ok",

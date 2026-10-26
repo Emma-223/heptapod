@@ -213,19 +213,12 @@ class WriteGridGenerationCondorFilesTool(BaseTool):
                 "hadd -fk207 higgsCombineTotalOutput_jobId$1.root higgsCombine.*POINT.*.root\n",
                 "rm higgsCombine.*POINT.*root"
             ])
+        # save the exact command that we wrote
+        cmd_file = output_path_full / "combine_command.txt
+        with cmd_file.open("w") as f:
+            f.write(cmd)
 
         # write condor.sub - only thing that changes is output file path and queue number
-        '''
-        submit_path = output_path_full / "condor.sub"
-
-        text = Path("template_condor_sub.txt").read_text()
-        nJobs = len(list(grid_points_data["grid"].keys()))
-        if self.input_files != "":
-            input_files_line = "transfer_input_files="+self.input_files
-        else:
-            input_files_line = "# no input files for this job"
-        submit_path.write_text(text.format(output_path=output_path_full, nJobs = nJobs, input_files_line=input_files_line))
-        '''
         nJobs = len(list(grid_points_data["grid"].keys()))
         submit_path = WriteCondorSubFile(output_path_full, nJobs, self.input_files)
 
@@ -242,7 +235,7 @@ class WriteGridGenerationCondorFilesTool(BaseTool):
             "executable_file":str(executable_path)
         })
 
-class WriteExtractOutputCondorFilesTool(BaseTool):
+class WriteExtractLimitOutputCondorFilesTool(BaseTool):
     """
     Writes the HTCondor submit and executable files for extacting limits from grid generation, for a given mass and quantile.
 
@@ -252,6 +245,7 @@ class WriteExtractOutputCondorFilesTool(BaseTool):
     combine_command: The combine command output by WriteCombineCommand for this mass and quantile
     input_files: The input files to be transferred to the job, as a comma separated list.
     make_plot: Will we make a plot of the grid scan range?
+    save_test_stats: Will we save the test statistic distributions?
 
     Returns (JSON):
     {"status": "ok", "submit_file": <name>, "executable_file": <name>}
@@ -276,9 +270,16 @@ class WriteExtractOutputCondorFilesTool(BaseTool):
         default = True,
         description = "Will we make a plot of the grid scan range?"
     )
+    save_test_stats: bool = RuntimeField(
+        default = False,
+        description = "Will we save the test statistic distributions?"
+    )
     # ======== State Fields ==========
     base_directory: str = StateField(
         description = "working directory"
+    )
+    combine_directory: str = StateField(
+        description = "/path/to/HiggsAnalysis/CombinedLimit"
     )
 
     def _run(self)->str:
@@ -311,6 +312,14 @@ class WriteExtractOutputCondorFilesTool(BaseTool):
                 suggestion="rerun WriteCombineCommand, removing -T [number] from the method_specific_options string"
             )
 
+        if (self.quantile > 0) and (not "--expectedFromGrid" in self.combine_command):
+            return self.format_error(
+                error="Did not specify quantile in combine_command",
+                reason="If the quantile is NOT -1, the quantile needs to be specified in the method_specific_options string with --expectedFromGrid=[quantile]",
+                context=f"combine_command={self.combine_command}",
+                suggestion="Rerun WriteCombineCommand and add --expectedFromGrid=[quantile] to the string you input to method_specific_options"
+            )
+            
         if "apptainer exec" in self.combine_command:
             return self.format_error(
                 error="wrong run method for condor job",
@@ -348,15 +357,16 @@ class WriteExtractOutputCondorFilesTool(BaseTool):
             if self.save_test_stats:
                 f.write(f"\npython3 plotTestStatCLs.py --input {merged_grid_file} --poi r --val all --mass {self.mass}\n")
 
-        '''
-        text = Path("template_condor_sub.txt").read_text()
-        nJobs = 1
-        if self.input_files != "":
-            input_files_line = "transfer_input_files="+self.input_files
-        else:
-            input_files_line = "# no input files for this job"
-        submit_path.write_text(text.format(output_path=limits_dir, nJobs = nJobs, input_files_line=input_files_line))
-        '''
+        cmd_file = limits_dir / "combine_command.txt"
+        with cmd_file.open("w") as f:
+            f.write(cmd)
+            
+        input_files = self.input_files
+        if self.save_test_stats:
+            # Depending on how you have combine setup and how you run jobs,
+            # this script may not be available in your job without transferring it as an input file.
+            input_files.append(self.combine_directory+"/test/plotTestStatCLs.py")
+            
         submit_path = WriteCondorSubFile(limits_dir, 1, self.input_files)
 
         expected_output = [merged_grid_file, "higgsCombine*LimitOutput.root"]

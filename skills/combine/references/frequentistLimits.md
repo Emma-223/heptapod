@@ -1,4 +1,4 @@
-## Limits with toys)
+## Limits with toys
 
     - Set the method argument to HybridNew
     - method specific options:

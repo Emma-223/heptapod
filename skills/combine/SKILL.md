@@ -34,7 +34,6 @@ Details about each input are provided below:
 Method: dictates which task Combine will run. For example, will it produce limits, or run a significance calculation, or do a likelihood scan? This can be one of:
     - AsymptoticLimits
     - HybridNew
-    - MultiDimFit
 
 Mass: the signal mass hypothesis for the physics process being studied. If you include this argument, Combine will put the mass in the name of the output root file. This is useful for keeping your files organized.
 
@@ -63,3 +62,7 @@ Often, this calculation split up over many computing jobs. This is called "grid 
 # Running
 
 For tasks you run interactively (i.e. NOT as HTCondor jobs), see **`references/runningInteractively.md`**.
+
+# More Information
+
+For more information about options that can be passed to Combine, see the Combine help menu in **`references/combine_help.txt`**.

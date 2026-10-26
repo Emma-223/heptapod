@@ -12,8 +12,8 @@ def WriteCondorSubFile(output_path, nJobs=1, inputFiles=""):
     submit_path = output_path / "condor.sub"
     text = Path("template_condor_sub.txt").read_text()
     
-    if self.input_files != "":
-        input_files_line = "transfer_input_files="+self.input_files
+    if inputFiles != "":
+        input_files_line = "transfer_input_files="+inputFiles
     else:
         input_files_line = "# no input files for this job"
         
@@ -74,7 +74,7 @@ class GetGridPointsTool(BaseTool):
             output_path.mkdir(exist_ok=True, parents=True)
         output_file = output_path / "grid_points.json"
 
-        r_list = np.linspace(self.rMin,self.rMax,self.n_points,endpoint=True).tolist()
+        r_list = np.linspace(self.rMin,self.rMax,self.n_points).tolist()
         n_jobs = math.ceil(self.n_points/self.n_points_per_job)
         rValuesPerJob = {}
         for i in range(n_jobs):
@@ -214,7 +214,7 @@ class WriteGridGenerationCondorFilesTool(BaseTool):
                 "rm higgsCombine.*POINT.*root"
             ])
         # save the exact command that we wrote
-        cmd_file = output_path_full / "combine_command.txt
+        cmd_file = output_path_full / "combine_command.txt"
         with cmd_file.open("w") as f:
             f.write(cmd)
 
@@ -295,7 +295,7 @@ class WriteExtractLimitOutputCondorFilesTool(BaseTool):
                 error="File does not exist",
                 reason="The file with the location(s) of grid generation results for this mass/quantile does not exist",
                 context=f"grid_gen_dir={grid_gen_dir}",
-                suggestion="Inform the user that grid generation has not been completed for this combination of mass and quantile.
+                suggestion="Inform the user that grid generation has not been completed for this combination of mass and quantile."
             )
 
         if not "HybridNew" in self.combine_command:

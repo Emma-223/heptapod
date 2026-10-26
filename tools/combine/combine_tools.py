@@ -124,7 +124,7 @@ class WriteCombineCommandTool(BaseTool):
         )
         
 
-class RunCommandTool(BaseTool):
+class RunCombineCommandTool(BaseTool):
     """
     Runs a combine command in a terminal and records the name of the output file. 
     You create the command by calling WriteCombineCommand. 
@@ -163,7 +163,7 @@ class RunCommandTool(BaseTool):
             Path(output_dir).mkdir(parents=True)
 
         # save exact command that was run for later reference
-        cmd_file = output_dir / "command_{}_{}".format(self.combine_method,self.mass)
+        cmd_file = output_dir / "command_{}_{}.txt".format(self.combine_method,self.mass)
         cmd_file.write_text(self.combine_command)
 
         # run command in output_dir so the root file ends up there
@@ -373,3 +373,64 @@ class CollectResultsTool(BaseTool):
         return json.dumps(
             {"status": "ok", "output_file": str(out_path), "limits_by_mass_and_quantile": limit_dict}
         )
+
+class PlotTestStatsFromRootFileTool(BaseTool):
+    """
+    Reads a test_stat_distributions.root file and saves the plot of each test statistic distribution in the file as a png and/or pdf file. Returns the path to the directory containing the plot files. Returns a formatted error if test_stat_distributions.root does not exist at the provided path.
+
+    Args:
+    file_type: Type of image file for plots. 'png' for .png files, 'pdf' for .pdf files, or 'both' to produce one png and one pdf of each plot.
+    path_to_root_file: The directory containing test_stat_distributions.root, relative to the working directory.
+    plot_dir: Directory in which to save the plots, relative to the working directory.
+
+    Returns (JSON):
+    {"status": "ok", "plots_dir": <path>}
+    """
+
+    # ========== Runtime Fields ==========
+    file_type: str = RuntimeField(
+        default = "pdf",
+        description = "Type of image file for plots. 'png' for .png files, 'pdf' for .pdf files, or 'both' to produce one png and one pdf of each plot."
+    )
+    path_to_root_file: str = RuntimeField(
+        description = "The directory containing test_stat_distributions.root, relative to the working directory."
+    )
+    plot_dir: str = RuntimeField(
+        default = "test_stat_plots",
+        description = "Directory in which to save the plots, relative to the working directory."
+    )
+
+    # ========== State Fields ==========
+    base_directory: str = StateField(
+        description = "working directory"
+    )
+
+    def _run(self)-> str:
+        root_file = _safe_path(self.base_directory, self.path_to_root_file +"/test_stat_distributions.root")
+        if not root_file.exists:
+            raise self.format_error(
+                error="file does not exist",
+                reason=f"no file test_stat_distributions.root found in {self.path_to_root_file}",
+                suggestion="check that the provided path is correct and relative to the working directory"
+            )
+            
+        tfile = TFile.Open(str(root_file))
+        canvas_names = tfile.GetListOfKeys()
+        
+        plot_dir_path_relative = self.path_to_root_file +"/"+ self.plot_dir
+        output_dir = _safe_path(self.base_directory, plot_dir_path_relative)
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True)
+            
+        for cname in canvas_names:
+            print(cname.GetName())
+            c = tfile.Get(cname.GetName())
+            
+            save_name = cname.GetName().replace("qmu","testStatPlot")
+            save_path = str(output_dir / save_name)
+            if "png" in self.file_type.lower():
+                c.Print(save_path+".png")
+            if "pdf" in self.file_type.lower():
+                c.Print(save_path+".pdf")
+
+        return json.dumps({"status":"ok", "plots_dir": str(output_dir)})

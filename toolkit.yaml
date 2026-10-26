@@ -358,7 +358,7 @@ tools:
     description: Writes a command to be run in CMS Combine
     bundle: combine
   - module: tools.combine.combine_tools
-    name: RunCommandTool
+    name: RunCombineCommandTool
     description: Runs a CMS Combine command
     bundle: combine
   - module: tools.combine.combine_tools

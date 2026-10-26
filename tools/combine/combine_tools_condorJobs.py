@@ -344,7 +344,9 @@ class WriteExtractOutputCondorFilesTool(BaseTool):
             cmd += f" --grid={merged_grid_file} --readHybridResults -n .LimitOutput "
             
             f.write(cmd + "\n")
-            f.write("echo 'command finished running'")
+
+            if self.save_test_stats:
+                f.write(f"\npython3 plotTestStatCLs.py --input {merged_grid_file} --poi r --val all --mass {self.mass}\n")
 
         '''
         text = Path("template_condor_sub.txt").read_text()

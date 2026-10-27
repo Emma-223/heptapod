@@ -380,9 +380,11 @@ class WriteExtractLimitOutputCondorFilesTool(BaseTool):
             
         submit_path = WriteCondorSubFile(limits_dir, 1, input_files)
 
-        expected_output = [merged_grid_file, "higgsCombine*LimitOutput.root"]
+        expected_output = [merged_grid_file, "higgsCombine*LimitOutput*.root"]
         if self.make_plot:
             expected_output.append(plot_file)
+        if self.save_test_stats:
+            expected_output.append("test_stat_distributions.root")
 
         expected_outputs_file = limits_dir / "expected_output_files.json"
         with expected_outputs_file.open('w') as f:
@@ -444,7 +446,7 @@ class CheckJobOutputTool(BaseTool):
             #path_to_check = base_path / filename
             #if not path_to_check.exists():
                 #missing_files.append(str(path_to_check))
-            found_files = base_path.glob(filename)
+            found_files = list(base_path.glob(filename))
             if len(found_files)==0:
                 missing_files.append(str(base_path / filename))
 
@@ -453,7 +455,7 @@ class CheckJobOutputTool(BaseTool):
                 error = "missing output files",
                 reason = f"{len(missing_files)} files are missing from the output of the condor submission for mass {self.mass} GeV, quantile {self.quantile}",
                 context = f"missing files={", ".join(missing_files)}",
-                suggestion = f"Check that the provided output directory is correct. If the output directory is correct, the job most likely had a problem. Check the contents of the condor*.out and condor*.err files in the directory {base_path}"
+                suggestion = f"Check that the provided output directory is correct. If the output directory is correct, the job most likely had a problem. Check the contents of the condor*.out and condor*.err files in the directory {base_path}."
             )
 
         return json.dumps(
@@ -548,12 +550,12 @@ class InitializeRRangesTool(BaseTool):
 
         #print(asymptotic_limits)
         rRanges = {}
-        # Default is 0 to 2*[asymptotic_limit] for observed and high quantiles, 3*limit for low quantiles.
+        # Default is 0.5 to 2*[asymptotic_limit] for observed and high quantiles, 3*limit for low quantiles.
         for mass in asymptotic_limits.keys():
             rRanges[mass] = {}
             for quant in asymptotic_limits[mass].keys():
                 limit = asymptotic_limits[mass][quant]
-                rMin = 0
+                rMin = 0.5*limit
                 if float(quant) > 0 and float(quant) < 0.5:
                     rMax = 3*limit
                 else:

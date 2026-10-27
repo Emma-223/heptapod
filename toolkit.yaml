@@ -43,6 +43,10 @@ config:
     description: singularity container used to run CMS Combine outside of a CMSSW environment
     type: path
     required: false
+  - name: combine_directory
+    description: the path to your clone of the combine repo, ending with HiggsAnalysis/CombinedLimit, e.g. path/to/HiggsAnalysis/CombinedLimit
+    type: path
+    required: false
 bundles:
   # ── lightweight / always-available ───────────────────────────────
   units: {}                              # pure python; nothing to install
@@ -369,6 +373,10 @@ tools:
     name: CollectResultsTool
     description: Collects results from multiple masses into a single json file
     bundle: combine
+  - module: tools.combine.combine_tools
+    name: PlotTestStatsFromRootFileTool
+    description: Reads a test_stat_distributions.root file and saves the plots as png and/or pdf files 
+    bundle: combine
   - module: tools.combine.combine_tools_condorJobs
     name: GetGridPointsTool
     description: Divides a range rMin to rMax into n_points evenly spaced points.Then divides those points up among HTCondor jobs with n_points_per_job in each job and saves the job splitting to a json file
@@ -388,4 +396,8 @@ tools:
   - module: tools.combine.combine_tools_condorJobs
     name: InitializeRRangesTool
     description: Uses the result of an asymptotic limit calculation to guess the r ranges for a grid generation calculation
+    bundle: combine
+  - module: tools.combine.combine_tools_condorJobs
+    name: WriteExtractLimitOutputCondorFilesTool
+    description: Writes the HTCondor submit and executable files to extract the limits from a grid generation calculation.
     bundle: combine

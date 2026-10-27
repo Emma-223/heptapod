@@ -55,8 +55,6 @@ For instructions on determining the method-specific options for asymptotic limit
 
 ## Limits with toys
 
-For instructions on running this interactively, see **`references/frequentistLimits.md`**.
-
 Often, this calculation split up over many computing jobs. This is called "grid generation". For instructions on grid generation, see **`references/gridGeneration.md`**. Once the grid is generated, the output is extracted following **`references/extractingGridGenerationOutput.md`**. The final result is a set of root files which can be read with `ReadLimitOutput`.
 
 # Running

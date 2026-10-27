@@ -222,10 +222,8 @@ class ReadLimitOutputTool(BaseTool):
     and you want the limits on the signal strength r.
 
     Args: 
-        root_file_name: The name of root file produced by RunCommand when the Combine method is AsymptoticLimits or HybridNew. This file should already exist when you call this tool.
-        root_file_directory: The directory in which root_file is stored, relative to the working directory.
+        root_file: The root file (relative to the working directory) produced when the Combine method is AsymptoticLimits or HybridNew. This file should already exist when you call this tool. The tool supports wildcards in the file name, e.g. path/to/higgsCombine*LimitOutput*.root
         output_limits_file: File name to write the limit results to, relative to the working directory. This should be a json file. It is just a filename, not a path.
-        combine_method: The combine method used to create root_file
         mass: The signal mass hypothesis that produced these limits.
 
     Returns (JSON):
@@ -233,18 +231,12 @@ class ReadLimitOutputTool(BaseTool):
 
     """
     # ========== Runtime Fields ==========
-    root_file_name: str = RuntimeField(
-        description = "The name of root file produced by RunCommand when the Combine method is AsymptoticLimits or HybridNew. This file should already exist when you call this tool."
-    )
-    root_file_directory: str = RuntimeField(
-        description = "The directory in which root_file_name is stored, relative to the working directory."
+    root_file: str = RuntimeField(
+        description = "The root file (relative to the working directory) produced when the Combine method is AsymptoticLimits or HybridNew. This file should already exist when you call this tool. The tool supports wildcards in the file name, e.g. path/to/higgsCombine*LimitOutput*.root"
     )
     output_limit_file: str = RuntimeField(
         default = "limits.json",
         description = "File name to write the limit results to. This should be a json file. It is just a filename, not a path."
-    )
-    combine_method: str = RuntimeField(
-        description = "The combine method used to create root_file_name"
     )
     mass: int = RuntimeField(
         description = "The signal mass hypothesis that produced these limits"
@@ -258,23 +250,34 @@ class ReadLimitOutputTool(BaseTool):
     # ========== run ==========
         
     def _run(self) -> str:
-        out_path = _safe_path(self.base_directory, Path(self.root_file_directory) / self.output_limit_file)
-        root_file_with_dir = Path(self.root_file_directory) / self.root_file_name
-        root_file_full = _safe_path(self.base_directory, root_file_with_dir)
-        
-        if not root_file_full.exists():
+
+        root_files_found = list(Path(self.base_directory).glob(self.root_file))
+
+        if len(root_files_found) > 1:
             return self.format_error(
-                error="File not found",
-                reason="the root file containing the limits does not exist",
-                suggestion="Run WriteCombineCommand and RunCommand to run Combine and create the root file"
+                error="found too many files",
+                reason=f"should find exactly one file matching pattern, instead found {len(root_files_found)}.",
+                context=f"root_file={self.root_file}",
+                suggestion="use a more specific pattern in the root_file argument."
             )
+        if len(root_files_found)==0:
+            return self.format_error(
+                error="file not found",
+                reason=f"did not find a root file matching pattern {self.root_file}",
+                suggestion="check that root_file is specified relative to the working directory"
+            )
+            
+        root_file = Path(root_files_found[0]).relative_to(self.base_directory)
+        root_file_full = _safe_path(self.base_directory, root_file)
+        
         if "/" in self.output_limit_file:
             return self.format_error(
                 error="Invalid filename",
-                reason="The name provided for the output limit json file is a path, not a plan filename.",
+                reason="The name provided for the output limit json file is a path, not a plain filename.",
                 suggestion="Use a plain filename such as 'limits_[mass].json"
             ) # agent kept wanting to make directories for this file to live in. We want to force it to live in the same directory as the other outputs
-
+        out_path = root_file_full.parent / self.output_limit_file
+        print(out_path)
         # standard ROOT way of getting info from a tree. Makes a dict with quantiles as the keys and limits as the values. 
         limit_file = TFile.Open(str(root_file_full))
         limit_tree = limit_file.Get("limit")
@@ -290,7 +293,7 @@ class ReadLimitOutputTool(BaseTool):
 
         out_path.write_text(json.dumps(limit_dict))
 
-        return json.dumps({"status": "ok", "output_file_name": str(out_path.name), "output_directory": self.root_file_directory})
+        return json.dumps({"status": "ok", "output_file": str(out_path)})
 
 class CollectResultsTool(BaseTool):
     """

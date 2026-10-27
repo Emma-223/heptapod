@@ -327,6 +327,15 @@ class WriteExtractLimitOutputCondorFilesTool(BaseTool):
                 suggestion="Rerun WriteCombineCommand with is_condor_job=True"
             )
 
+        test_stat_script = _safe_path(self.combine_directory, "test/plotTestStatCLs.py")
+        if self.make_plot and (not test_stat_script.exists()):
+            return self.format_error(
+                error="file not found",
+                reason="cannot find plotTestStatCLs.py",
+                context=f"combine_directory={self.combine_directory}",
+                suggestion="inform the user that they have not provided a valid path to HiggsAnalysis/CombinedLimit"
+            )
+
         with grid_gen_output.open('r') as f:
             file_list = json.load(f)["file_list"]
 
@@ -348,7 +357,7 @@ class WriteExtractLimitOutputCondorFilesTool(BaseTool):
             cmd = self.combine_command
             plot_file = f"limit_scan_m{self.mass}_q{self.quantile}.pdf"
             if self.make_plot:
-                self.combine_command += f" --plot={plot_file} "
+                cmd += f" --plot={plot_file} "
                 
             cmd += f" --grid={merged_grid_file} --readHybridResults -n .LimitOutput "
             
@@ -365,9 +374,9 @@ class WriteExtractLimitOutputCondorFilesTool(BaseTool):
             # Depending on how you have combine setup and how you run jobs,
             # this script may not be available in your job without transferring it as an input file.
             if not self.input_files=="":
-                input_files = self.input_files + "," +self.combine_directory+"/test/plotTestStatCLs.py"
+                input_files = self.input_files + "," +str(test_stat_script)
             else:
-                input_files = self.combine_directory+"/test/plotTestStatCLs.py"
+                input_files = str(test_stat_script)
             
         submit_path = WriteCondorSubFile(limits_dir, 1, input_files)
 
@@ -432,9 +441,12 @@ class CheckJobOutputTool(BaseTool):
 
         missing_files = []
         for filename in file_list:
-            path_to_check = base_path / filename
-            if not path_to_check.exists():
-                missing_files.append(str(path_to_check))
+            #path_to_check = base_path / filename
+            #if not path_to_check.exists():
+                #missing_files.append(str(path_to_check))
+            found_files = base_path.glob(filename)
+            if len(found_files)==0:
+                missing_files.append(str(base_path / filename))
 
         if len(missing_files)>0:
             return self.format_error(

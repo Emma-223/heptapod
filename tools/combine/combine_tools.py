@@ -430,7 +430,17 @@ class PlotTestStatsFromRootFileTool(BaseTool):
             save_path = str(output_dir / save_name)
             if "png" in self.file_type.lower():
                 c.Print(save_path+".png")
-            if "pdf" in self.file_type.lower():
+            elif "pdf" in self.file_type.lower():
                 c.Print(save_path+".pdf")
+            elif "both" in self.file_type.lower():
+                c.Print(save_path+".png")
+                c.Print(save_path+".pdf")
+            else:
+                return self.format_error(
+                    error="wrong file type specified",
+                    reason="the file_type argument can be 'pdf', 'png', or 'both'.",
+                    context=f"file_type={self.file_type}",
+                    suggestion="use 'pdf' or 'png' in the file_type argument, or 'both' to make one of each."
+                )
 
         return json.dumps({"status":"ok", "plots_dir": str(output_dir)})

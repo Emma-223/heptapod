@@ -69,37 +69,101 @@ This architecture allows seamless integration with existing analysis frameworks 
 
 ### Event Generation Tools
 
-#### FeynRulesToUFOTool
+#### GenerateFeynRulesModelTool
 
-**Purpose**: Generate Universal FeynRules Output (UFO) from FeynRules model files
+**Purpose**: Generate a FeynRules `.fr` model file from a structured JSON spec, so the regular and error-prone Mathematica blocks (`M$Parameters`, `M$ClassesDescription`, `M$GaugeGroups`) are rendered rather than hand-written. Irregular parts such as the Lagrangian algebra are carried verbatim.
 
 **Input Parameters:**
-- `model_path` (str): Path to FeynRules `.fr` model file
-- `output_dir` (str): Directory for generated UFO output
-- `feynrules_path` (str, optional): FeynRules installation path
-- `wolframscript_path` (str, optional): WolframScript executable path
+- `model_json` (str): JSON matching the `FeynRulesModel` schema in `tools/frgen/frmodel.py`. Numbers are strings so exact FeynRules syntax survives (`-1/3`, `1500.`, `2.5*^-3`).
+- `output_path` (str, optional): `.fr` path relative to `base_directory`. Defaults to `models/<model_name>.fr`.
 
 **Output:**
 ```json
 {
   "status": "ok",
-  "ufo_directory": "path/to/S1_LQ_RR_UFO",
-  "files": ["couplings.py", "particles.py", "vertices.py", ...]
+  "model_name": "S1_LQ_RR",
+  "fr_path": "models/S1_LQ_RR.fr",
+  "n_particles": 1,
+  "n_parameters": 3,
+  "lagrangian_terms": ["LkinS1", "L1YukRR", "LBSM"]
 }
 ```
 
+`lagrangian_terms` names the symbols the file defines, so the caller can hand one to `FeynRulesToUFOTool` instead of guessing a convention that model files do not share. A malformed spec returns the Pydantic validation errors rather than a Mathematica parse failure three steps later.
+
+---
+
+#### FeynRulesToUFOTool
+
+**Purpose**: Compile a FeynRules `.fr` model to a UFO directory via `wolframscript`, running consistency checks first and verifying the UFO is complete before reporting success.
+
+**Input Parameters:**
+- `model_path` (str): Path to the `.fr` model file.
+- `lagrangian` (str): The total Lagrangian expression, for example `"LSM + LBSM"`, `"LNP"`, or `"LSM + LkinS1 + L1YukRR"`. **Required.** Model files share no naming convention, so this is never inferred; omit it and the tool reports which Lagrangian-like symbols the model actually defines.
+- `output_dir` (str): Directory for the generated UFO.
+- `load_sm` (bool, optional): Load FeynRules' `SM.fr` alongside the model. Default `true`; set `false` for a model that does not extend the SM.
+- `run_checks` (bool, optional): Run the consistency checks before compiling. Default `true`.
+- `checks` (str, optional): Which checks to run. Default set is `hermiticity`, `kinetic_diagonal`, `mass_diagonal`, `mass_spectrum`. Pass `"all"` to add `quadratic_diagonal` and `kinetic_norm`, which fail for the Standard Model itself (see `skills/feynrules/references/pitfalls.md` P11).
+- `add_decays` (bool, optional): Have FeynRules compute 1→2 partial widths. Defaults on below Wolfram 14 and off above, where the routine is unreliable.
+- `feynrules_path`, `wolframscript_path` (str): Installation paths.
+
+**Output:**
+```json
+{
+  "ok": true,
+  "output_dir": "feynrules/S1_LQ_RR_UFO",
+  "lagrangian": "LSM + LBSM",
+  "checks_summary": "4 passed",
+  "checks": [{"name": "hermiticity", "verdict": "pass", "message": "..."}],
+  "files_created": ["particles.py", "vertices.py", "couplings.py", "..."]
+}
+```
+
+`ok` means a usable UFO exists, not that the process exited cleanly. `WriteUFO` writes its boilerplate even when vertex extraction produced nothing, so the output is checked for `particles.py`, `vertices.py`, `couplings.py`, `parameters.py` and `coupling_orders.py`.
+
 **Example:**
 ```python
-from feynrules.feynrules_tools import FeynRulesToUFOTool
+from tools.feynrules import FeynRulesToUFOTool
 
-tool = FeynRulesToUFOTool(base_directory="./workspace")
+tool = FeynRulesToUFOTool(
+    base_directory="./workspace",
+    feynrules_path=feynrules_path,
+    wolframscript_path=wolframscript_path,
+)
 result = tool.run(
     model_path="models/S1_LQ_RR.fr",
-    output_dir="ufo_outputs"
+    lagrangian="LSM + LBSM",
+    output_dir="ufo_outputs",
 )
 ```
 
-**Requirements**: Mathematica ≤ v13.3, valid license
+---
+
+#### ValidateLagrangianTool
+
+**Purpose**: Run FeynRules' consistency checks on a model's Lagrangian without writing a UFO. This is the fast loop while a model is being edited, since `WriteUFO` is the expensive half.
+
+**Input Parameters:** `model_path`, `lagrangian`, `load_sm`, `checks`, `baseline_compare` (as above).
+
+**Output:** a verdict per check, three-valued. A check that could not be decided reports `inconclusive`, never `pass`, because several FeynRules check functions return `Null` rather than `False`. Each failure carries a message naming the remedy:
+
+```json
+{"name": "hermiticity", "verdict": "fail",
+ "message": "The Lagrangian is not Hermitian: FeynRules found residual terms in L - HC[L]. Almost always a term is missing its conjugate -- add `+ HC[...]` around the offending interaction."}
+```
+
+---
+
+#### ValidateUFOModelTool
+
+**Purpose**: Compile a `.fr` and check what was produced: the expected UFO files exist, every declared particle reached the UFO with the right spin, colour and charge, and optionally that a partial width matches a closed-form expectation.
+
+**Input Parameters:**
+- `model_path`, `lagrangian`, `load_sm`: as above.
+- `feynrules_model_json` (str, optional): the same `FeynRulesModel` spec `GenerateFeynRulesModelTool` consumes, used for the particle-property checks.
+- `width_gate` (str, optional): a partial width to compare against an analytic formula.
+
+A failed validation is a normal structured result with `passed: false`, not a tool error, so a repair loop can read it and act. UFO files are parsed with `ast` and never imported, since `particles.py` instantiates objects and imports the model package.
 
 ---
 
@@ -718,3 +782,149 @@ tool = EnumerateDiagramsTool(
     base_directory="./workspace"
 )
 ```
+
+### LLP Reach Tools (`llp` bundle)
+
+**Purpose:** Decay-in-volume long-lived-particle (LLP) reach studies — sampling a weighted LLP flux from an analytic parent-flux kernel and computing signal yields over a coupling grid with exact g² reweighting.
+
+The bundle is setting-agnostic: the collider-forward vs beam-dump choice lives entirely in the kernel YAML (parent mass, momentum/angle scales, per-interaction normalization), the geometry YAML, and the `n_int` normalization — never in the tools. Pure Python + numpy + yaml; no external HEP software and no config gating.
+
+Declared conventions (shared by both tools):
+- **g²-stripped weights**: `event_weight_g2_stripped = n_per_int * kappa / n_samples`, so `N_sig(g) = N_int * g² * Σᵢ wᵢ * P_dec,i(g) * accᵢ`.
+- **Decaying-parents-only kernels**: the kernel parametrizes d²N/(dp dθ) of decaying parents per primary interaction (decay-before-absorption folded into `n_per_int`).
+- **Straight-line propagation** of the LLP from the primary vertex at its lab angle.
+- **Midpoint two-track convention**: the phi → μ⁺μ⁻ acceptance is evaluated at the midpoint of the in-volume segment, keeping it g-independent so one event set covers the whole coupling grid exactly.
+
+#### LLPFluxFromMesonDecayTool
+
+Samples weighted LLP lab-frame events from an analytic parent-flux kernel (form `pexp_texp`) convolved with the tree-level 3-body production spectrum M → μνφ (scalar radiated off the muon leg). Writes line-delimited JSON records (`E`, `px`, `py`, `pz`, `theta_lab`, `parent_channel`, `event_weight_g2_stripped`) plus a manifest declaring the g²-stripped weight convention. A kinematically closed channel (m_φ ≥ m_M − m_μ) returns status ok with `n_samples = 0` and the cutoff flagged.
+
+**Input Parameters:**
+- `kernel_spec` (str): Path to the kernel YAML (carries parent name, `parent_mass_gev`, `n_per_int`, `p0_gev`, `a`, `theta0_rad`)
+- `m_phi_gev` (float): LLP mass in GeV
+- `m_mu_gev` (float): Muon mass in GeV (default: 0.1056584)
+- `kappa` (float): Declared branching coefficient at g = 1, i.e. Br(M → μνφ) = g² κ
+- `n_samples` (int): Number of Monte Carlo events
+- `seed` (int): RNG seed (deterministic output)
+- `output_path` (str): Events file path (line-delimited JSON)
+
+**Example:**
+```python
+from tools.llp import LLPFluxFromMesonDecayTool
+
+tool = LLPFluxFromMesonDecayTool(
+    kernel_spec="kernel/kaon.yaml",
+    m_phi_gev=0.25,
+    kappa=1.3e-5,
+    n_samples=200000,
+    seed=42,
+    output_path="flux/phi_K.jsonl",
+    base_directory="./workspace"
+)
+# Output: flux/phi_K.jsonl + flux/phi_K.manifest.json
+```
+
+#### DecayInVolumeTool
+
+Computes decay-in-volume yields N_sig(g) over a coupling grid from g²-stripped events (multiple channels may be concatenated into one file). Per event: in-volume segment [L1, L2] from the on-axis cylinder intersection, `P_dec = exp(-L1/λ) − exp(-L2/λ)` with `λ = βγ cτ` and `cτ = ħc / (g² width_ref)`; midpoint two-track acceptance. Writes a yields table plus a per-event audit file (`parent_channel`, `beta_gamma`, `L1_m`, `L2_m`, `geom_pass`, `two_track_pass`, `p_decay_at_g_ref`, `weighted_contribution_at_g_ref`).
+
+**Input Parameters:**
+- `events_path` (str): Line-delimited JSON events (LLPFluxFromMesonDecayTool output format)
+- `geometry_path` (str): Geometry YAML (`z_min_m`, `z_max_m`, `r_volume_m`, `z_det_m`, `r_det_m`)
+- `m_phi_gev` / `m_mu_gev` (float): LLP / muon masses in GeV
+- `width_ref_gev` (float): Γ_tot at g = 1 (g²-stripped reference width)
+- `g_grid` (list[float]): Couplings at which to evaluate N_sig (exact reweighting)
+- `n_int` (float): Number of primary interactions (σ_inel·L_int or N_POT)
+- `require_two_track` (bool): Apply the two-track acceptance (default: True)
+- `seed` (int): RNG seed for the isotropic φ → μμ decay sampling (default: 1)
+- `output_path` (str): Yields table JSON path
+
+**Example:**
+```python
+from tools.llp import DecayInVolumeTool
+
+tool = DecayInVolumeTool(
+    events_path="flux/phi_all_channels.jsonl",
+    geometry_path="geometry/geometry.yaml",
+    m_phi_gev=0.25,
+    width_ref_gev=1.52e-3,
+    g_grid=[1e-8, 3e-8, 1e-7, 1e-6],
+    n_int=2.2e16,
+    output_path="yields/m0p25.json",
+    base_directory="./workspace"
+)
+# Output: yields/m0p25.json + yields/m0p25.audit.jsonl
+```
+---
+
+### Pipeline Plumbing
+
+Two pure-python bundles for long, multi-stage runs.
+
+#### SubmitJobTool / JobStatusTool / JobResultTool / CancelJobTool
+
+**Purpose**: Run slow tools detached. Lagrangian checks on a large model, UFO
+compiles, MadGraph and Pythia runs take minutes, which is longer than an agent
+should block for. Submit returns a `job_id` at once; poll the state, then fetch
+the tool's verbatim output. `canceljob` stops a job that is no longer wanted.
+
+Only tools in the whitelist in `tools/jobs/job_manager.py` can run as jobs:
+`feynrulestoufo`, `validatelagrangian`, `validateufomodel`,
+`madgraphfromruncard`, `pythiafromruncard`, `delphesfromhepmc`,
+`reverselagrangian`, and `audittrail`. `tool_args` takes the target tool's
+runtime arguments only; paths to executables come from server config.
+
+A job is `queued`, `running`, `done`, `failed` or `cancelled`. Stopping a job,
+by `canceljob` or the `max_seconds` watchdog, stops every process its tool
+started, not just the runner.
+
+**Progress.** A tool reports progress with `report_progress(self, done, total,
+unit=..., message=...)` from `tools/jobs/progress.py`. As a job, that lands in
+`status.json`, and `jobstatus` shows it with a rough ETA:
+
+```
+[################--------]  67%  2/3 scan points  ETA 10s  run_03 · survey
+```
+
+MadGraph reports the stage, its integration jobs and, for a scan, the points
+done. Called directly with no callback, `report_progress` does nothing.
+
+**Example:**
+```python
+from tools.jobs.jobs_tool import SubmitJobTool
+
+tool = SubmitJobTool(
+    tool_name="validateufomodel",
+    tool_args='{"model_path": "S1_LQ.fr", "lagrangian": "LSM + LBSM"}',  # JSON string
+    base_directory="./workspace",
+)
+```
+
+#### AuditTrailTool
+
+**Purpose**: Record, render or read a structured `audit.json` provenance
+ledger, so a multi-stage run leaves a reviewable trace of what ran, in what
+order, and with what outcome.
+---
+
+### Reverse Lagrangian Check
+
+#### ReverseLagrangianTool
+
+**Purpose**: Blank-slate reverse check of a `.fr` model. An agent that never
+saw the paper reconstructs the physics from the sanitized `.fr` alone. A second
+fresh agent grades that reconstruction against the paper, term by term. The
+output is a review package that ends in a sign-off block. The tooling never
+issues the verdict itself.
+
+Passing the FeynRules checks means the tool chain accepts the model. It does
+not mean the model matches the paper. This tool tests that second question.
+
+**Input Parameters:**
+- `model_path` (str): `.fr` file relative to `base_directory`
+- `action` (str): `reconstruct`, `crosscheck`, or `full`
+- `paper_tex_path` (str, optional): paper source, required for the cross-check
+
+Needs `blank_agent_cmd`. The reverse check takes minutes; submit it with
+`SubmitJobTool(tool_name="reverselagrangian", ...)`. Full detail in
+[`reverse/README.md`](reverse/README.md).

@@ -17,7 +17,7 @@ with numerical substitutions if needed.
 import json
 import os
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from orchestral.tools.base.tool import BaseTool
 from orchestral.tools.base.field_utils import RuntimeField, StateField
@@ -89,6 +89,20 @@ class ComputeSymbolicAmplitude(BaseTool):
         # V-A vertex
         {"type": "vector-axial", "coupling": {"gV": "gV_e", "gA": "gA_e"}}
 
+    THE `coupling` COLUMN ABOVE IS A CONTRACT, not merely a default. The type
+    decides the Feynman rule and the coupling must supply exactly the names
+    that rule takes; a mismatch RAISES rather than being reinterpreted. So
+    `{"type": "vector", "coupling": {"g": "g"}}` is the plain vector rule (a
+    one-entry dict is unambiguous), while `{"type": "chiral", "coupling":
+    {"gV": ..., "gA": ...}}` is an error naming gL, gR as expected.
+
+    Until 2.15.2 the dispatch inferred the vertex from the coupling's SHAPE
+    instead: ANY dict meant chiral, wherever it appeared in the chain, which
+    silently overrode six legitimate types. Asking for a plain vector vertex
+    while writing the coupling as a dict returned a chiral rule in gL/gR --
+    symbols the caller had not supplied, so the number went missing with no
+    error. The type is authoritative now.
+
     The generated script is always saved to a .wl file. To execute it
     (after adding numerical substitutions), pass the script_path to
     RunWolframScript.
@@ -101,6 +115,40 @@ class ComputeSymbolicAmplitude(BaseTool):
             "'final', 'vertices', and optionally 'propagators', 'topology'. "
             "Particle labels required; masses and coupling values are NOT needed."
         )
+    )
+    diagrams: Optional[List[Dict[str, Any]]] = RuntimeField(
+        default=None,
+        description=(
+            "COHERENT SUM: a list of diagram specs sharing the same external "
+            "legs and masses, whose amplitudes are added BEFORE squaring so "
+            "the interference terms are kept. Each entry may carry its own "
+            "'channel' ('s'/'t'/'u'/'contact'). Use this whenever more than "
+            "one diagram contributes -- phi phi -> phi phi via a cubic "
+            "coupling is s+t+u, identical-fermion scattering is t+u -- "
+            "because summing |M|^2 diagram by diagram drops the interference "
+            "and is simply wrong. Supply this OR 'diagram', not both."
+        ),
+    )
+    channel: Optional[str] = RuntimeField(
+        default=None,
+        description=(
+            "Scattering channel for a 2->2 exchange diagram: 's', 't', 'u' "
+            "or 'contact'. The same four external legs and the same mediator "
+            "describe three DIFFERENT diagrams, so this is a property of the "
+            "diagram, not something the topology determines. Left unset, "
+            "s-channel is assumed and the assumption is reported in "
+            "'warnings'."
+        ),
+    )
+    relative_signs: Optional[List[int]] = RuntimeField(
+        default=None,
+        description=(
+            "One +1 or -1 per entry in 'diagrams'. Two diagrams related by "
+            "interchange of two external FERMION lines enter with opposite "
+            "signs (e.g. [1, -1] for t and u in e-e- -> e-e-). Required when "
+            "the final state has identical fermions; the interference term, "
+            "not just its magnitude, depends on it."
+        ),
     )
     script_name: Optional[str] = RuntimeField(
         default=None,
@@ -132,49 +180,73 @@ class ComputeSymbolicAmplitude(BaseTool):
     # ================================================================ #
 
     def _run(self) -> str:
-        if not self.diagram:
+        if not self.diagram and not self.diagrams:
             return self.format_error(
                 error="Missing Parameter",
-                reason="diagram is required",
-                suggestion="Provide a symbolic diagram specification dict",
-            )
-
-        # Parse as symbolic diagram
-        try:
-            sym = parse_symbolic_diagram(self.diagram)
-        except Exception as e:
-            return self.format_error(
-                error="Diagram Parse Error",
-                reason=str(e),
-            )
-
-        is_valid, warnings = sym.validate()
-        if not is_valid:
-            return self.format_error(
-                error="Diagram Validation Failed",
-                reason="; ".join(warnings),
-            )
-
-        # Build a Diagram directly from the SymbolicDiagram (no SM lookup needed).
-        # Requires spins on all particles — masses are left symbolic.
-        try:
-            resolved = build_diagram_from_symbolic(sym)
-        except Exception as e:
-            return self.format_error(
-                error="Diagram Build Error",
-                reason=str(e),
+                reason="one of 'diagram' or 'diagrams' is required",
                 suggestion=(
-                    "Spins must be provided on all particles and propagators "
-                    "for symbolic code generation. Add 'spin' to each particle dict."
+                    "Provide 'diagram' for a single diagram, or 'diagrams' "
+                    "(a list) to add several coherently."
+                ),
+            )
+        if self.diagram and self.diagrams:
+            return self.format_error(
+                error="Ambiguous Input",
+                reason="'diagram' and 'diagrams' are mutually exclusive",
+                suggestion=(
+                    "Use 'diagrams' alone for a coherent sum; the single "
+                    "'diagram' form is for one diagram only."
                 ),
             )
 
-        # Generate code with symbolic masses
+        specs = self.diagrams if self.diagrams else [self.diagram]
+
+        syms, resolved_list, channels = [], [], []
+        for idx, spec in enumerate(specs):
+            try:
+                sym = parse_symbolic_diagram(spec)
+            except Exception as e:
+                return self.format_error(
+                    error="Diagram Parse Error",
+                    reason=f"diagram {idx}: {e}",
+                )
+            is_valid, warnings = sym.validate()
+            if not is_valid:
+                return self.format_error(
+                    error="Diagram Validation Failed",
+                    reason=f"diagram {idx}: " + "; ".join(warnings),
+                )
+            # Build a Diagram directly from the SymbolicDiagram (no SM lookup
+            # needed). Requires spins on all particles — masses stay symbolic.
+            try:
+                resolved_list.append(build_diagram_from_symbolic(sym))
+            except Exception as e:
+                return self.format_error(
+                    error="Diagram Build Error",
+                    reason=f"diagram {idx}: {e}",
+                    suggestion=(
+                        "Spins must be provided on all particles and "
+                        "propagators for symbolic code generation. Add "
+                        "'spin' to each particle dict."
+                    ),
+                )
+            syms.append(sym)
+            channels.append(spec.get("channel", self.channel))
+
+        sym = syms[0]
         generator = SymbolicFeynCalcCodeGenerator(
             assume_real_couplings=self.assume_real_couplings,
             simplifications=self.simplifications,
+            channel=self.channel,
         )
-        gen_result = generator.generate(resolved, sqrt_s=self.sqrt_s)
+        if self.diagrams:
+            gen_result = generator.generate_sum(
+                [(d, ch or "s") for d, ch in zip(resolved_list, channels)],
+                sqrt_s=self.sqrt_s,
+                relative_signs=self.relative_signs,
+            )
+        else:
+            gen_result = generator.generate(resolved_list[0], sqrt_s=self.sqrt_s)
 
         if gen_result.process_type == ProcessType.UNSUPPORTED:
             output = {
@@ -222,6 +294,9 @@ class ComputeSymbolicAmplitude(BaseTool):
             output["warnings"] = gen_result.warnings
         if gen_result.channel:
             output["channel"] = gen_result.channel.name
+        if gen_result.channels:
+            output["channels"] = [c.name for c in gen_result.channels]
+            output["n_diagrams_summed"] = len(gen_result.channels)
 
         # Append findings (best-effort)
         try:

@@ -230,7 +230,7 @@ def check_prerequisites():
 
     # Check essential directories
     print("\n>> Checking project structure...")
-    essential_dirs = ['tools', 'examples', 'llm']
+    essential_dirs = ['prompts', 'tools', 'examples', 'llm']
     for dir_name in essential_dirs:
         dir_path = REPO_ROOT / dir_name
         if dir_path.exists():
@@ -247,7 +247,8 @@ def check_prerequisites():
 
     return all_ok, has_ollama
 
-def run_test_script(script_path, verbose=False, keep_files=False, description=None):
+def run_test_script(script_path, verbose=False, keep_files=False, description=None,
+                    use_pytest=False):
     """
     Run a test script and return success status.
 
@@ -263,12 +264,21 @@ def run_test_script(script_path, verbose=False, keep_files=False, description=No
     if description:
         print(f">> {description}")
 
-    # Build command
-    cmd = [sys.executable, str(script_path)]
-    if verbose:
-        cmd.append("-v")
-    if keep_files:
-        cmd.append("--keep-files")
+    # Build command. `use_pytest` suites are ordinary pytest modules rather
+    # than self-running scripts: their tests share fixtures built by earlier
+    # tests in the same file, so executing the file directly fails on a clean
+    # checkout while pytest collects and orders them correctly.
+    if use_pytest:
+        cmd = [sys.executable, "-m", "pytest", "-q", str(script_path)]
+        if verbose:
+            cmd.append("-v")
+        return_on = None
+    else:
+        cmd = [sys.executable, str(script_path)]
+        if verbose:
+            cmd.append("-v")
+        if keep_files:
+            cmd.append("--keep-files")
 
     print(f"   Running: {' '.join(cmd)}\n")
 
@@ -313,7 +323,7 @@ def main():
     )
     parser.add_argument(
         "--only",
-        choices=["prereqs", "conversions", "kinematics", "reconstruction", "delta_r_filter", "feynrules", "mg5", "pythia", "sherpa", "llm", "pdg", "inspire", "units", "nda", "eda", "feyngraph", "logging"],
+        choices=["prereqs", "conversions", "kinematics", "reconstruction", "delta_r_filter", "feynrules", "frgen", "validate", "jobs", "reverse", "mg5", "pythia", "sherpa", "llm", "pdg", "inspire", "arxiv", "units", "nda", "wolfram", "eda", "feyngraph", "llp", "logging"],
         help="Run only tests for specified component (prereqs = prerequisites check only)"
     )
     parser.add_argument(
@@ -365,7 +375,23 @@ def main():
         },
         "feynrules": {
             "script": REPO_ROOT / "tools" / "feynrules" / "test_feynrules.py",
-            "description": "FeynRules tools (UFO generation, path resolution, parameter validation)"
+            "description": "FeynRules tools (UFO generation, Lagrangian checks, path resolution)"
+        },
+        "frgen": {
+            "script": REPO_ROOT / "tools" / "frgen" / "test_frgen.py",
+            "description": "FeynRules .fr generator (schema, validators, render, parser)"
+        },
+        "validate": {
+            "script": REPO_ROOT / "tools" / "feynrules" / "test_validate.py",
+            "description": "UFO validation (file/particle checks, static UFO parsing, width gate)"
+        },
+        "jobs": {
+            "script": REPO_ROOT / "tools" / "jobs" / "test_jobs.py",
+            "description": "Background jobs (submit/poll/result, whitelist, detached runner)"
+        },
+        "reverse": {
+            "script": REPO_ROOT / "tools" / "reverse" / "test_reverse.py",
+            "description": "Reverse Lagrangian check (sanitizer, blank agent, review package)"
         },
         "mg5": {
             "script": REPO_ROOT / "tools" / "mg5" / "test_mg5.py",
@@ -387,6 +413,21 @@ def main():
             "script": REPO_ROOT / "tools" / "inspire" / "tests" / "test_inspire_tools.py",
             "description": "INSPIRE tools (paper search, citations, author information)"
         },
+        # `literature` was already an --only choice but had no suite behind it,
+        # so it ran zero tests and reported success.
+        # Named for the bundle the suite actually covers. There is no
+        # `literature` component: its only other suite, test_literature.py,
+        # guards on pytest.importorskip("pypdfium2"), and pytest exits 5 ("no
+        # tests collected") when that skip fires, which the runner reads as a
+        # failure on every machine without that pip dep. An --only choice with
+        # nothing runnable behind it reports success while testing nothing,
+        # which is the failure mode this component was added to remove.
+        "arxiv": {
+            "scripts": [
+                REPO_ROOT / "tools" / "literature" / "test_arxiv.py",
+            ],
+            "description": "arXiv tools (search, PDF retrieval, LaTeX e-print source)"
+        },
         "units": {
             "script": REPO_ROOT / "tools" / "units" / "tests" / "test_units.py",
             "description": "Unit conversion tools (natural units, metric prefix conversions)"
@@ -403,20 +444,47 @@ def main():
         "eda": {
             "scripts": [
                 REPO_ROOT / "tools" / "eda" / "tests" / "test_feyncalc_codegen.py",
+                REPO_ROOT / "tools" / "eda" / "tests" / "test_scattering.py",
+                REPO_ROOT / "tools" / "eda" / "tests" / "test_decay_archetypes.py",
                 REPO_ROOT / "tools" / "eda" / "tests" / "test_symbolic_codegen.py",
                 REPO_ROOT / "tools" / "eda" / "tests" / "test_symbolic_to_python.py",
                 REPO_ROOT / "tools" / "eda" / "tests" / "test_convert_to_python_tool.py",
                 REPO_ROOT / "tools" / "eda" / "tests" / "test_simplify_result_tool.py",
                 REPO_ROOT / "tools" / "eda" / "tests" / "test_skills_graph.py",
-                REPO_ROOT / "tools" / "eda" / "tests" / "test_wolfram_runner.py",
-                REPO_ROOT / "tools" / "eda" / "tests" / "test_run_wolfram_tool.py",
                 REPO_ROOT / "tools" / "eda" / "tests" / "test_e2e_feyncalc.py",
             ],
-            "description": "EDA tools (FeynCalc codegen, Wolfram runner, symbolic-to-Python conversion)"
+            "description": "EDA tools (FeynCalc codegen, symbolic-to-Python conversion)"
+        },
+        # The generic Wolfram runner behind the eda and feynrules bundles.
+        # Needs wolframscript but no Wolfram add-on package.
+        "wolfram": {
+            "scripts": [
+                REPO_ROOT / "tools" / "wolfram" / "tests" / "test_wolfram_runner.py",
+                REPO_ROOT / "tools" / "wolfram" / "tests" / "test_run_wolfram_tool.py",
+                REPO_ROOT / "tools" / "wolfram" / "tests" / "test_independence.py",
+            ],
+            "description": "Wolfram tools (generic wolframscript execution, structured-result parsing)"
+        },
+        "llp": {
+            "use_pytest": True,
+            # f0b735f split test_llp_tools.py into per-tool suites; this
+            # entry still named the deleted file, so the runner reported
+            # FAIL for a bundle whose tests all pass.
+            "scripts": [
+                REPO_ROOT / "tools" / "llp" / "tests" / "test_decay_in_volume.py",
+                REPO_ROOT / "tools" / "llp" / "tests" / "test_harvest_forward_flux.py",
+                REPO_ROOT / "tools" / "llp" / "tests" / "test_llp_physics.py",
+                REPO_ROOT / "tools" / "llp" / "tests" / "test_meson_decay_to_llp.py",
+                REPO_ROOT / "tools" / "llp" / "tests" / "test_production_spectrum.py",
+            ],
+            "description": "LLP tools (flux sampling from meson decay, decay-in-volume yields, g^4 scaling)",
         },
         "logging": {
-            "script": REPO_ROOT / "tools" / "logging" / "tests" / "test_findings.py",
-            "description": "Logging tools (findings ledger)"
+            "scripts": [
+                REPO_ROOT / "tools" / "logging" / "tests" / "test_findings.py",
+                REPO_ROOT / "tools" / "logging" / "tests" / "test_audit.py",
+            ],
+            "description": "Logging tools (findings ledger, audit provenance trail)"
         },
     }
 
@@ -429,7 +497,7 @@ def main():
         if args.only and args.only != component:
             continue
         # Skip slow tests if requested (utils is fast, so don't skip it)
-        if args.skip_slow and component in ["feynrules", "mg5", "pythia", "sherpa"]:
+        if args.skip_slow and component in ["feynrules", "frgen", "validate", "mg5", "pythia", "sherpa"]:
             print(f"⊘ Skipping {component} tests (--skip-slow)\n")
             continue
 
@@ -459,7 +527,8 @@ def main():
                 script_path,
                 verbose=args.verbose,
                 keep_files=args.keep_files,
-                description=description
+                description=description,
+                use_pytest=config.get("use_pytest", False),
             )
             if not success:
                 all_passed = False

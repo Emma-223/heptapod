@@ -27,7 +27,7 @@ Currently, we support:
 
 ## Configuration
 
-The tools assume that you have your datacards in a json file with masses as the keys and absolute paths to datacards as the values. They also assume that you have exactly one datacard per mass.
+The tools assume that you have a json file with masses as the keys and absolute paths to datacards as the values. They also assume that you have exactly one datacard per mass.
 
 The following two `tb config` commands are required:
 

@@ -5,14 +5,25 @@ A toolkit to automate the running of CMS Combine.
 | Tool | What it does |
 |---|---|
 |`WriteCombineCommand`| Writes a CMS Combine command to be run. Handles modifying the command to run in a container if necessary.
-|`RunCommand`| Runs a command made with WriteCombineCommand.
+|`RunCombineCommand`| Runs a command made with WriteCombineCommand.
 |`ReadLimitOutput`| Reads the expected and/or observed limits from a root file output by combine
 |`CollectResults` | Collects results from multiple masses into a single json file
+|`PlotTestStatsFromRootFileTool` | Gets test statistic plots from the test_stat_distributions.root file and saves them as pdf and/or png files.
+|`InitializeRRangesTool`  | initializes r ranges for a grid generation calculation based on an input json file of central values.
+|`LookupRRangeTool`  | looks up an r range from the file output by `InitializeRRanges`
+|`GetGridPointsTool` | divides a range into n points, then divides those points among condor jobs with m points per job
+|`WriteGridGenerationCondorFilesTool`  | writes condor.sub/.sh files for grid generation
+|`WriteExtractLimitOutputCondorFilesTool`  | writes condor.sub/.sh files to extract limits from grid
+|`CheckJobOutputTool`  | checks if all expected output from a condor job has been produced
 ---
 
 There is also a Combine SKILL.md file which defines some common terms, details the command line options for different methods, and outlines a typical Combine workflow.
 
-Currently supported methods are `HybridNew` (simple models) and `AsymptoticLimits`.
+Currently, we support: 
+
+- Asymptotic frequentist limits (`AsymptoticLimits` method of Combine, see [https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest/part3/commonstatsmethods/#asymptotic-frequentist-limits](https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest/part3/commonstatsmethods/#asymptotic-frequentist-limits))
+
+- Limits with toys calculated over a grid of POI values (`HybridNew` method of Combine, see [https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest/part3/commonstatsmethods/#complex-models](https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest/part3/commonstatsmethods/#complex-models)).
 
 ## Configuration
 
@@ -23,6 +34,8 @@ The following two `tb config` commands are required:
 `tb config set heptapod datacards_by_mass [path/to/file-with-datacard-paths.json]`
 
 `tb config set heptapod base_directory [path/to/output] #the directory where output is to be stored`
+
+`tb config set heptapod combine_directory [path/to/HiggsAnalysis/CombinedLimit] #Path to your clone of the combine repo, ending with HiggsAnalysis/CombinedLimit`
 
 If you are running Combine in a container, you will also need to set the path to the `.sif` file:
 

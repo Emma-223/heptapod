@@ -29,7 +29,7 @@ Currently, we support:
 
 The tools assume that you have a json file with masses as the keys and absolute paths to datacards as the values. They also assume that you have exactly one datacard per mass.
 
-The following two `tb config` commands are required:
+The following `tb config` commands are required:
 
 `tb config set heptapod datacards_by_mass [path/to/file-with-datacard-paths.json]`
 

@@ -4,7 +4,7 @@ description: Run the asymptotic limits for all masses in the leptoquark search a
 
 # General information and overview of the task
 
-The leptoquark search analysis considers mass hypotheses from 300 GeV to 2000 GeV in 100 GeV increments, so 300, 400, 500, etc. ending with 2000. The user wants you to calculate the asymptotic limits for each mass hypothesis by following the steps detailed below, then show them a summary of the results. This is a complex, multi-step task which you should run autonomously with @general. Remember that if a tool is available, you should always use the tool.
+The leptoquark search analysis considers mass hypotheses from 300 GeV to 2000 GeV in 100 GeV increments, so 300, 400, 500, etc. ending with 2000. The user wants you to calculate the asymptotic limits for each mass hypothesis by following the steps detailed below, then show them a summary of the results.  Remember that if a tool is available, you should always use the tool.
 
 # Steps
 

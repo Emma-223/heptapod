@@ -76,6 +76,17 @@ config:
     description: Enable INSPIRE query caching.
     type: boolean
     default: false
+  - name: datacards_by_mass
+    description: json file which can be loaded into a python dict with masses as keys and absolute paths to CMS Combine datacards as values
+    type: path
+    required: false
+  - name: combine_container
+    description: singularity container used to run CMS Combine outside of a CMSSW environment
+    type: path
+    required: false
+  - name: combine_directory
+    description: the path to your clone of the combine repo, ending with HiggsAnalysis/CombinedLimit, e.g. path/to/HiggsAnalysis/CombinedLimit
+    type: path
   - name: blank_agent_cmd
     description: Command template for the blank-slate agent the reverse bundle
       spawns. The agent runs in an empty directory with no MCP tools and no
@@ -207,6 +218,18 @@ bundles:
   # ── event datasets: conversion between ROOT, HepMC3 and JSONL ────
   events:
     deps: [awkward>=2.8.0, uproot>=5.7.0, pyhepmc>=2.13]
+  # ── Statistical analysis in CMS Combine ───────────
+  combine: 
+    requires: [datacards_by_mass]
+    deps: [root]
+    # note: the root version that Combine itself needs will be included in the container or CMSSW environment you use to run Combine.
+    # It is included as a dependency here purely for ReadLimitOutputTool.
+    # Further, note that while root can be installed with pip, this seems to be a very new thing, and it has different version numbers from the main root documentation. See https://pypi.org/project/root/
+    # That being said, ReadLimitOutput just needs to open a file and pull at most 6 numbers from a tree, so we don't really care at this stage.
+    
+  # ── HepMC3 event-format bridge (evtjsonl <-> .hepmc) ─────────────
+  hepmc:
+    deps: [pyhepmc>=2.13]
 
   # ── Delphes fast detector simulation (a local build with ROOT) ──
   delphes:
@@ -726,6 +749,59 @@ tools:
       e.g. to HepMC3 for Delphes or Rivet, with the run's beams, weights and
       cross section.
     bundle: [events, event_gen, pythia]
+  - module: tools.combine.combine_tools
+    name: WriteCombineCommandTool
+    description: Writes a command to be run in CMS Combine
+    bundle: combine
+  - module: tools.combine.combine_tools
+    name: RunCombineCommandTool
+    description: Runs a CMS Combine command
+    bundle: combine
+  - module: tools.combine.combine_tools
+    name: ReadLimitOutputTool
+    description: Reads the expected and/or observed limits from a root file output by combine
+    bundle: combine
+  - module: tools.combine.combine_tools
+    name: CollectResultsTool
+    description: Collects results from multiple masses into a single json file
+    bundle: combine
+  - module: tools.combine.combine_tools
+    name: PlotTestStatsFromRootFileTool
+    description: Reads a test_stat_distributions.root file and saves the plots as png and/or pdf files 
+    bundle: combine
+  - module: tools.combine.combine_tools_condorJobs
+    name: GetGridPointsTool
+    description: Divides a range rMin to rMax into n_points evenly spaced points.Then divides those points up among HTCondor jobs with n_points_per_job in each job and saves the job splitting to a json file
+    bundle: combine
+  - module: tools.combine.combine_tools_condorJobs
+    name: WriteGridGenerationCondorFilesTool
+    description: Writes the submit and executable files to run grid generation with CMS Combine as HTCondor jobs for a given mass hypothesis and quantile
+    bundle: combine
+  - module: tools.combine.combine_tools_condorJobs
+    name: CheckJobOutputTool
+    description: Checks that the actual output of an HTCondor job submission matches the expected output
+    bundle: combine
+  - module: tools.combine.combine_tools_condorJobs
+    name: LookupRRangeTool
+    description: Looks up the range of signal strength r to be considered in a grid generation calculation for a given mass and quantile
+    bundle: combine
+  - module: tools.combine.combine_tools_condorJobs
+    name: InitializeRRangesTool
+    description: Uses the result of an asymptotic limit calculation to guess the r ranges for a grid generation calculation
+    bundle: combine
+  - module: tools.combine.combine_tools_condorJobs
+    name: WriteExtractLimitOutputCondorFilesTool
+    description: Writes the HTCondor submit and executable files to extract the limits from a grid generation calculation.
+    bundle: combine
+  - module: tools.hepmc.hepmc
+    name: JSONLToHepMCTool
+    description: Convert evtjsonl-1.0 events into a HepMC3 ASCII file
+      (the input format Delphes consumes).
+    bundle: hepmc
+  - module: tools.hepmc.hepmc
+    name: HepMCToJSONLTool
+    description: Convert a HepMC3 ASCII file into the evtjsonl-1.0 schema.
+    bundle: hepmc
   - module: tools.delphes.delphes
     name: DelphesFromHepMCTool
     description: Run Delphes fast detector simulation on a HepMC3 event

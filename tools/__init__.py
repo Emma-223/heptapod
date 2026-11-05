@@ -31,6 +31,7 @@ for _name in (
     "pythia",
     "sherpa",
     "units",
+    "combine"
     "wolfram",
 ):
     try:
